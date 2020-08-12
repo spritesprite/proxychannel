@@ -2,203 +2,400 @@ package proxychannel
 
 import (
 	"bufio"
+	"bytes"
+	"crypto/tls"
+	"fmt"
 	"io"
-	"log"
+	"io/ioutil"
 	"net"
 	"net/http"
-	"os"
-	"regexp"
+	"strings"
 	"sync/atomic"
+	"time"
+
+	"github.com/ouqiang/goproxy"
+	"github.com/spritesprite/proxychannel/cert"
 )
 
-// The basic proxy type. Implements http.Handler.
-type ProxyHttpServer struct {
-	// session variable must be aligned in i386
-	// see http://golang.org/src/pkg/sync/atomic/doc.go#L41
-	sess int64
-	// KeepDestinationHeaders indicates the proxy should retain any headers present in the http.Response before proxying
-	KeepDestinationHeaders bool
-	// setting Verbose to true will log information on each request sent to the proxy
-	Verbose         bool
-	Logger          Logger
-	NonproxyHandler http.Handler
-	reqHandlers     []ReqHandler
-	respHandlers    []RespHandler
-	httpsHandlers   []HttpsHandler
-	Tr              *http.Transport
-	// ConnectDial will be used to create TCP connections for CONNECT requests
-	// if nil Tr.Dial will be used
-	ConnectDial func(network string, addr string) (net.Conn, error)
-	CertStore   CertStorage
-	KeepHeader  bool
+const (
+	// 连接目标服务器超时时间
+	defaultTargetConnectTimeout = 5 * time.Second
+	// 目标服务器读写超时时间
+	defaultTargetReadWriteTimeout = 30 * time.Second
+	// 客户端读写超时时间
+	defaultClientReadWriteTimeout = 30 * time.Second
+)
+
+// 隧道连接成功响应行
+var tunnelEstablishedResponseLine = []byte("HTTP/1.1 200 Connection established\r\n\r\n")
+
+var badGateway = []byte(fmt.Sprintf("HTTP/1.1 %d %s\r\n\r\n", http.StatusBadGateway, http.StatusText(http.StatusBadGateway)))
+
+// 生成隧道建立请求行
+func makeTunnelRequestLine(addr string) string {
+	return fmt.Sprintf("CONNECT %s HTTP/1.1\r\n\r\n", addr)
 }
 
-var hasPort = regexp.MustCompile(`:\d+$`)
+type options struct {
+	disableKeepAlive bool
+	delegate         goproxy.Delegate
+	decryptHTTPS     bool
+	certCache        cert.Cache
+	transport        *http.Transport
+}
 
-func copyHeaders(dst, src http.Header, keepDestHeaders bool) {
-	if !keepDestHeaders {
-		for k := range dst {
-			dst.Del(k)
+type Option func(*options)
+
+// WithDisableKeepAlive 连接是否重用
+func WithDisableKeepAlive(disableKeepAlive bool) Option {
+	return func(opt *options) {
+		opt.disableKeepAlive = disableKeepAlive
+	}
+}
+
+// WithDelegate 设置委托类
+func WithDelegate(delegate goproxy.Delegate) Option {
+	return func(opt *options) {
+		opt.delegate = delegate
+	}
+}
+
+// WithTransport 自定义http transport
+func WithTransport(t *http.Transport) Option {
+	return func(opt *options) {
+		opt.transport = t
+	}
+}
+
+// WithDecryptHTTPS 中间人代理, 解密HTTPS, 需实现证书缓存接口
+func WithDecryptHTTPS(c cert.Cache) Option {
+	return func(opt *options) {
+		opt.decryptHTTPS = true
+		opt.certCache = c
+	}
+}
+
+// WithoutDecryptHTTPS http tunnel
+func WithoutDecryptHTTPS() Option {
+	return func(opt *options) {
+		opt.decryptHTTPS = false
+	}
+}
+
+// New 创建proxy实例
+func New(opt ...Option) *Proxy {
+	opts := &options{}
+	for _, o := range opt {
+		o(opts)
+	}
+	if opts.delegate == nil {
+		opts.delegate = &goproxy.DefaultDelegate{}
+	}
+	if opts.transport == nil {
+		opts.transport = &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+			DialContext: (&net.Dialer{
+				Timeout:   30 * time.Second,
+				KeepAlive: 30 * time.Second,
+				DualStack: true,
+			}).DialContext,
+			MaxIdleConns:          100,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
 		}
 	}
-	for k, vs := range src {
-		for _, v := range vs {
+
+	p := &Proxy{}
+	p.delegate = opts.delegate
+	p.decryptHTTPS = opts.decryptHTTPS
+	if p.decryptHTTPS {
+		p.cert = cert.NewCertificate(opts.certCache)
+	}
+	p.transport = opts.transport
+	p.transport.DisableKeepAlives = opts.disableKeepAlive
+	p.transport.Proxy = p.delegate.ParentProxy
+
+	return p
+}
+
+// Proxy 实现了http.Handler接口
+type Proxy struct {
+	delegate      goproxy.Delegate
+	clientConnNum int32
+	decryptHTTPS  bool
+	cert          *cert.Certificate
+	transport     *http.Transport
+}
+
+var _ http.Handler = &Proxy{}
+
+// ServeHTTP 实现了http.Handler接口
+func (p *Proxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
+	if req.URL.Host == "" {
+		req.URL.Host = req.Host
+	}
+	atomic.AddInt32(&p.clientConnNum, 1)
+	defer func() {
+		atomic.AddInt32(&p.clientConnNum, -1)
+	}()
+	ctx := &Context{
+		Req:  req,
+		Data: make(map[interface{}]interface{}),
+	}
+	defer p.delegate.Finish(ctx)
+	p.delegate.Connect(ctx, rw)
+	if ctx.abort {
+		return
+	}
+	p.delegate.Auth(ctx, rw)
+	if ctx.abort {
+		return
+	}
+
+	switch {
+	case ctx.Req.Method == http.MethodConnect && p.decryptHTTPS:
+		p.forwardHTTPS(ctx, rw)
+	case ctx.Req.Method == http.MethodConnect:
+		p.forwardTunnel(ctx, rw)
+	default:
+		p.forwardHTTP(ctx, rw)
+	}
+}
+
+// ClientConnNum 获取客户端连接数
+func (p *Proxy) ClientConnNum() int32 {
+	return atomic.LoadInt32(&p.clientConnNum)
+}
+
+// DoRequest 执行HTTP请求，并调用responseFunc处理response
+func (p *Proxy) DoRequest(ctx *Context, responseFunc func(*http.Response, error)) {
+	if ctx.Data == nil {
+		ctx.Data = make(map[interface{}]interface{})
+	}
+	p.delegate.BeforeRequest(ctx)
+	if ctx.abort {
+		return
+	}
+	newReq := new(http.Request)
+	*newReq = *ctx.Req
+	newReq.Header = CloneHeader(newReq.Header)
+	removeConnectionHeaders(newReq.Header)
+	for _, item := range hopHeaders {
+		if newReq.Header.Get(item) != "" {
+			newReq.Header.Del(item)
+		}
+	}
+	// p.transport.ForceAttemptHTTP2 = true // for test
+	resp, err := p.transport.RoundTrip(newReq)
+	p.delegate.BeforeResponse(ctx, resp, err)
+	if ctx.abort {
+		return
+	}
+	if err == nil {
+		removeConnectionHeaders(resp.Header)
+		for _, h := range hopHeaders {
+			resp.Header.Del(h)
+		}
+	}
+	responseFunc(resp, err)
+}
+
+// HTTP转发
+func (p *Proxy) forwardHTTP(ctx *Context, rw http.ResponseWriter) {
+	ctx.Req.URL.Scheme = "http"
+	p.DoRequest(ctx, func(resp *http.Response, err error) {
+		if err != nil {
+			p.delegate.ErrorLog(fmt.Errorf("%s - HTTP请求错误: , 错误: %s", ctx.Req.URL, err))
+			rw.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		defer resp.Body.Close()
+		CopyHeader(rw.Header(), resp.Header)
+		rw.WriteHeader(resp.StatusCode)
+		io.Copy(rw, resp.Body)
+	})
+}
+
+// HTTPS转发
+func (p *Proxy) forwardHTTPS(ctx *Context, rw http.ResponseWriter) {
+	clientConn, err := hijacker(rw)
+	if err != nil {
+		p.delegate.ErrorLog(err)
+		rw.WriteHeader(http.StatusBadGateway)
+		return
+	}
+	defer clientConn.Close()
+	_, err = clientConn.Write(tunnelEstablishedResponseLine)
+	if err != nil {
+		p.delegate.ErrorLog(fmt.Errorf("%s - HTTPS解密, 通知客户端隧道已连接失败, %s", ctx.Req.URL.Host, err))
+		return
+	}
+	tlsConfig, err := p.cert.GenerateTlsConfig(ctx.Req.URL.Host)
+	if err != nil {
+		p.delegate.ErrorLog(fmt.Errorf("%s - HTTPS解密, 生成证书失败: %s", ctx.Req.URL.Host, err))
+		rw.WriteHeader(http.StatusBadGateway)
+		return
+	}
+	// tlsConfig.NextProtos = []string{"h2", "http/1.1", "http/1.0"}
+	tlsClientConn := tls.Server(clientConn, tlsConfig)
+	tlsClientConn.SetDeadline(time.Now().Add(defaultClientReadWriteTimeout))
+	defer tlsClientConn.Close()
+	if err := tlsClientConn.Handshake(); err != nil {
+		p.delegate.ErrorLog(fmt.Errorf("%s - HTTPS解密, 握手失败: %s", ctx.Req.URL.Host, err))
+		return
+	}
+	buf := bufio.NewReader(tlsClientConn)
+	tlsReq, err := http.ReadRequest(buf)
+	if err != nil {
+		if err != io.EOF {
+			p.delegate.ErrorLog(fmt.Errorf("%s - HTTPS解密, 读取客户端请求失败: %s", ctx.Req.URL.Host, err))
+		}
+		return
+	}
+	tlsReq.RemoteAddr = ctx.Req.RemoteAddr
+	tlsReq.URL.Scheme = "https"
+	tlsReq.URL.Host = tlsReq.Host
+
+	ctx.Req = tlsReq
+	p.DoRequest(ctx, func(resp *http.Response, err error) {
+		if err != nil {
+			p.delegate.ErrorLog(fmt.Errorf("%s - HTTPS解密, 请求错误: %s", ctx.Req.URL, err))
+			tlsClientConn.Write(badGateway)
+			return
+		}
+		err = resp.Write(tlsClientConn)
+		if err != nil {
+			p.delegate.ErrorLog(fmt.Errorf("%s - HTTPS解密, response写入客户端失败, %s", ctx.Req.URL, err))
+		}
+		resp.Body.Close()
+	})
+}
+
+// 隧道转发
+func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
+	clientConn, err := hijacker(rw)
+	if err != nil {
+		p.delegate.ErrorLog(err)
+		rw.WriteHeader(http.StatusBadGateway)
+		return
+	}
+	defer clientConn.Close()
+	parentProxyURL, err := p.delegate.ParentProxy(ctx.Req)
+	if err != nil {
+		p.delegate.ErrorLog(fmt.Errorf("%s - 解析代理地址错误: %s", ctx.Req.URL.Host, err))
+		rw.WriteHeader(http.StatusBadGateway)
+		return
+	}
+	targetAddr := ctx.Req.URL.Host
+	if parentProxyURL != nil {
+		targetAddr = parentProxyURL.Host
+	}
+
+	targetConn, err := net.DialTimeout("tcp", targetAddr, defaultTargetConnectTimeout)
+	if err != nil {
+		p.delegate.ErrorLog(fmt.Errorf("%s - 隧道转发连接目标服务器失败: %s", ctx.Req.URL.Host, err))
+		rw.WriteHeader(http.StatusBadGateway)
+		return
+	}
+	defer targetConn.Close()
+	clientConn.SetDeadline(time.Now().Add(defaultClientReadWriteTimeout))
+	targetConn.SetDeadline(time.Now().Add(defaultTargetReadWriteTimeout))
+	if parentProxyURL == nil {
+		_, err = clientConn.Write(tunnelEstablishedResponseLine)
+		if err != nil {
+			p.delegate.ErrorLog(fmt.Errorf("%s - 隧道连接成功,通知客户端错误: %s", ctx.Req.URL.Host, err))
+			return
+		}
+	} else {
+		tunnelRequestLine := makeTunnelRequestLine(ctx.Req.URL.Host)
+		targetConn.Write([]byte(tunnelRequestLine))
+	}
+
+	p.transfer(clientConn, targetConn)
+}
+
+// 双向转发
+func (p *Proxy) transfer(src net.Conn, dst net.Conn) {
+	go func() {
+		io.Copy(src, dst)
+		src.Close()
+		dst.Close()
+	}()
+
+	io.Copy(dst, src)
+	dst.Close()
+	src.Close()
+}
+
+// 获取底层连接
+func hijacker(rw http.ResponseWriter) (net.Conn, error) {
+	hijacker, ok := rw.(http.Hijacker)
+	if !ok {
+		return nil, fmt.Errorf("web server不支持Hijacker")
+	}
+	conn, _, err := hijacker.Hijack()
+	if err != nil {
+		return nil, fmt.Errorf("hijacker错误: %s", err)
+	}
+
+	return conn, nil
+}
+
+// CopyHeader 浅拷贝Header
+func CopyHeader(dst, src http.Header) {
+	for k, vv := range src {
+		for _, v := range vv {
 			dst.Add(k, v)
 		}
 	}
 }
 
-func isEof(r *bufio.Reader) bool {
-	_, err := r.Peek(1)
-	if err == io.EOF {
-		return true
+// CloneHeader 深拷贝Header
+func CloneHeader(h http.Header) http.Header {
+	h2 := make(http.Header, len(h))
+	for k, vv := range h {
+		vv2 := make([]string, len(vv))
+		copy(vv2, vv)
+		h2[k] = vv2
 	}
-	return false
+	return h2
 }
 
-func (proxy *ProxyHttpServer) filterRequest(r *http.Request, ctx *ProxyCtx) (req *http.Request, resp *http.Response) {
-	req = r
-	for _, h := range proxy.reqHandlers {
-		req, resp = h.Handle(r, ctx)
-		// non-nil resp means the handler decided to skip sending the request
-		// and return canned response instead.
-		if resp != nil {
-			break
-		}
+// CloneBody 拷贝Body
+func CloneBody(b io.ReadCloser) (r io.ReadCloser, body []byte, err error) {
+	if b == nil {
+		return http.NoBody, nil, nil
 	}
-	return
-}
-func (proxy *ProxyHttpServer) filterResponse(respOrig *http.Response, ctx *ProxyCtx) (resp *http.Response) {
-	resp = respOrig
-	for _, h := range proxy.respHandlers {
-		ctx.Resp = resp
-		resp = h.Handle(resp, ctx)
+	body, err = ioutil.ReadAll(b)
+	if err != nil {
+		return http.NoBody, nil, err
 	}
-	return
+	r = ioutil.NopCloser(bytes.NewReader(body))
+
+	return r, body, nil
 }
 
-func removeProxyHeaders(ctx *ProxyCtx, r *http.Request) {
-	r.RequestURI = "" // this must be reset when serving a request with the client
-	ctx.Logf("Sending request %v %v", r.Method, r.URL.String())
-	// If no Accept-Encoding header exists, Transport will add the headers it can accept
-	// and would wrap the response body with the relevant reader.
-	r.Header.Del("Accept-Encoding")
-	// curl can add that, see
-	// https://jdebp.eu./FGA/web-proxy-connection-header.html
-	r.Header.Del("Proxy-Connection")
-	r.Header.Del("Proxy-Authenticate")
-	r.Header.Del("Proxy-Authorization")
-	// Connection, Authenticate and Authorization are single hop Header:
-	// http://www.w3.org/Protocols/rfc2616/rfc2616.txt
-	// 14.10 Connection
-	//   The Connection general-header field allows the sender to specify
-	//   options that are desired for that particular connection and MUST NOT
-	//   be communicated by proxies over further connections.
-
-	// When server reads http request it sets req.Close to true if
-	// "Connection" header contains "close".
-	// https://github.com/golang/go/blob/master/src/net/http/request.go#L1080
-	// Later, transfer.go adds "Connection: close" back when req.Close is true
-	// https://github.com/golang/go/blob/master/src/net/http/transfer.go#L275
-	// That's why tests that checks "Connection: close" removal fail
-	if r.Header.Get("Connection") == "close" {
-		r.Close = false
-	}
-	r.Header.Del("Connection")
+var hopHeaders = []string{
+	"Connection",
+	"Proxy-Connection",
+	"Keep-Alive",
+	"Proxy-Authenticate",
+	"Proxy-Authorization",
+	"Te",
+	"Trailer",
+	"Transfer-Encoding",
+	"Upgrade",
 }
 
-// Standard net/http function. Shouldn't be used directly, http.Serve will use it.
-func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	//r.Header["X-Forwarded-For"] = w.RemoteAddr()
-	if r.Method == "CONNECT" {
-		proxy.handleHttps(w, r)
-	} else {
-		ctx := &ProxyCtx{Req: r, Session: atomic.AddInt64(&proxy.sess, 1), Proxy: proxy}
-
-		var err error
-		ctx.Logf("Got request %v %v %v %v", r.URL.Path, r.Host, r.Method, r.URL.String())
-		if !r.URL.IsAbs() {
-			proxy.NonproxyHandler.ServeHTTP(w, r)
-			return
-		}
-		r, resp := proxy.filterRequest(r, ctx)
-
-		if resp == nil {
-			if isWebSocketRequest(r) {
-				ctx.Logf("Request looks like websocket upgrade.")
-				proxy.serveWebsocket(ctx, w, r)
-			}
-
-			if !proxy.KeepHeader {
-				removeProxyHeaders(ctx, r)
-			}
-			resp, err = ctx.RoundTrip(r)
-			if err != nil {
-				ctx.Error = err
-				resp = proxy.filterResponse(nil, ctx)
-
-			}
-			if resp != nil {
-				ctx.Logf("Received response %v", resp.Status)
+func removeConnectionHeaders(h http.Header) {
+	if c := h.Get("Connection"); c != "" {
+		for _, f := range strings.Split(c, ",") {
+			if f = strings.TrimSpace(f); f != "" {
+				h.Del(f)
 			}
 		}
-
-		var origBody io.ReadCloser
-
-		if resp != nil {
-			origBody = resp.Body
-			defer origBody.Close()
-		}
-
-		resp = proxy.filterResponse(resp, ctx)
-
-		if resp == nil {
-			var errorString string
-			if ctx.Error != nil {
-				errorString = "error read response " + r.URL.Host + " : " + ctx.Error.Error()
-				ctx.Logf(errorString)
-				http.Error(w, ctx.Error.Error(), 500)
-			} else {
-				errorString = "error read response " + r.URL.Host
-				ctx.Logf(errorString)
-				http.Error(w, errorString, 500)
-			}
-			return
-		}
-		ctx.Logf("Copying response to client %v [%d]", resp.Status, resp.StatusCode)
-		// http.ResponseWriter will take care of filling the correct response length
-		// Setting it now, might impose wrong value, contradicting the actual new
-		// body the user returned.
-		// We keep the original body to remove the header only if things changed.
-		// This will prevent problems with HEAD requests where there's no body, yet,
-		// the Content-Length header should be set.
-		if origBody != resp.Body {
-			resp.Header.Del("Content-Length")
-		}
-		copyHeaders(w.Header(), resp.Header, proxy.KeepDestinationHeaders)
-		w.WriteHeader(resp.StatusCode)
-		nr, err := io.Copy(w, resp.Body)
-		if err := resp.Body.Close(); err != nil {
-			ctx.Warnf("Can't close response body %v", err)
-		}
-		ctx.Logf("Copied %v bytes to client error=%v", nr, err)
 	}
-}
-
-// NewProxyHttpServer creates and returns a proxy server, logging to stderr by default
-func NewProxyHttpServer() *ProxyHttpServer {
-	proxy := ProxyHttpServer{
-		Logger:        log.New(os.Stderr, "", log.LstdFlags),
-		reqHandlers:   []ReqHandler{},
-		respHandlers:  []RespHandler{},
-		httpsHandlers: []HttpsHandler{},
-		NonproxyHandler: http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			http.Error(w, "This is a proxy server. Does not respond to non-proxy requests.", 500)
-		}),
-		Tr: &http.Transport{TLSClientConfig: tlsClientSkipVerify, Proxy: http.ProxyFromEnvironment},
-	}
-
-	proxy.ConnectDial = dialerFromEnv(&proxy)
-
-	return &proxy
 }
