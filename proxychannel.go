@@ -9,34 +9,80 @@ import (
 	"github.com/ouqiang/goproxy"
 )
 
+// // Context the context shared by proxy server and extensions
+// // TODO
+// type Context struct {
+// 	Req   *http.Request
+// 	Data  map[interface{}]interface{}
+// 	abort bool
+// }
+
+// Cache implements the Cache interface
+type Cache struct {
+	m sync.Map
+}
+
+// Set sets the cached cert of this host
+func (c *Cache) Set(host string, cert *tls.Certificate) {
+	c.m.Store(host, cert)
+}
+
+// Get gets the cached cert of this host
+func (c *Cache) Get(host string) *tls.Certificate {
+	v, ok := c.m.Load(host)
+	if !ok {
+		return nil
+	}
+	return v.(*tls.Certificate)
+}
+
+// Proxychannel is a prxoy that transfers data from http client
+// to multiple dynamic proxies and get responses from them.
 type Proxychannel struct {
 	extensionManager *ExtensionManager
 	delegate         *goproxy.Delegate
 	stopped          bool
 	stopping         bool
-	logger           Logger
+	// logger           Logger
 }
 
+// NewProxychannel creates a new Proxychannel
 func NewProxychannel() *Proxychannel {
-	proxychannel := &Proxychannel{}
-	proxychannel.extensionManager = ExtensionManager
+	proxychannel := &Proxychannel{
+		extensionManager: NewExtensionManager(),
+		delegate:         &DefaultDelegate{},
+		stopped:          false,
+		stopping:         false,
+	}
 	return proxychannel
 }
 
-func (*Proxychannel) Run() {
-	proxy := goproxy.New(goproxy.WithDecryptHTTPS(&Cache{}))
-	// proxy := goproxy.New(goproxy.WithoutDecryptHTTPS())
-	// nextProtos := []string{"h2", "http/1.1"}
-	// tlsConfig := &tls.Config{NextProtos: nextProtos}
-	server := &http.Server{
-		Addr:         ":8001",
-		Handler:      proxy,
-		ReadTimeout:  1 * time.Minute,
-		WriteTimeout: 1 * time.Minute,
-		// TLSConfig:    tlsConfig,
-	}
-	err := server.ListenAndServe()
-	if err != nil {
-		panic(err)
-	}
+func (pc *Proxychannel) Run(serverConf *ServerConfig, handlerConf *HandlerConfig) {
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		extensionManager
+		extensionManager.LoadExtensions(xxxconf) // TODO
+		extensionManager.Setup()
+	}()
+
+	go func() {
+		defer wg.Done()
+		handler := goproxy.New(handlerConf)
+		server := &http.Server{
+			Addr:         serverConf.ProxyAddr,
+			Handler:      handler,
+			ReadTimeout:  serverConf.ReadTimeout,
+			WriteTimeout: serverConf.WriteTimeout,
+			TLSConfig:    serverConf.TLSConfig,
+		}
+		err := server.ListenAndServe()
+		if err != nil {
+			panic(err)
+		}
+	}()
+
+	wg.Wait()
 }
