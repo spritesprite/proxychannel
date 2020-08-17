@@ -5,7 +5,8 @@ import (
 )
 
 func main() {
-	// ConfigLogging(proxychannel.DefaultLogConfig)
+	// Providing certain log configuration before Run() is optional
+	// e.g. ConfigLogging(lconf) where lconf is a *LogConfig
 	pc := proxychannel.NewProxychannel(
 		proxychannel.DefaultHandlerConfig,
 		proxychannel.DefaultServerConfig,

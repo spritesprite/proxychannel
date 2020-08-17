@@ -1,9 +1,7 @@
 package proxychannel
 
 import (
-	// "crypto/tls"
 	"context"
-	// "log"
 	"net"
 	"net/http"
 	"os"
@@ -11,41 +9,33 @@ import (
 	"sync"
 	"syscall"
 	"time"
-	// "github.com/op/go-logging"
-	// "github.com/vardius/shutdown"
-	// messagebus "github.com/vardius/message-bus"
 )
 
-// Proxychannel is a prxoy that transfers data from http client
-// to multiple dynamic proxies and get responses from them.
+// Proxychannel is a prxoy server that manages data transmission
+// between http clients and destination servers.
+// With the "Extensions" provided by user, Proxychannel is able to
+// do authentication, communicate with databases, manipulate the
+// requests/responses, etc.
 type Proxychannel struct {
 	extensionManager *ExtensionManager
 	server           *http.Server
 	waitGroup        *sync.WaitGroup
 	serverDone       chan bool
-	// stopped          bool
-	// stopping         bool
-	// handler          *Proxy
-	// conf             *Config
-	// logger           Logger
 }
 
-// NewProxychannel creates a new Proxychannel
+// NewProxychannel returns a new Proxychannel
 func NewProxychannel(hconf *HandlerConfig, sconf *ServerConfig, econf ExtensionManagerConfig) *Proxychannel {
 	proxychannel := &Proxychannel{
 		extensionManager: NewExtensionManager(econf),
 		server:           NewServer(hconf, sconf),
 		waitGroup:        &sync.WaitGroup{},
 		serverDone:       make(chan bool),
-		// stopped:          false,
-		// stopping:         false,
 	}
 	return proxychannel
 }
 
 // NewServer returns an http.Server that defined by user config
 func NewServer(hconf *HandlerConfig, sconf *ServerConfig) *http.Server {
-	// handler := NewProxy(hconf)
 	handler := NewProxy(WithoutDecryptHTTPS())
 	server := &http.Server{
 		Addr:         sconf.ProxyAddr,
@@ -129,7 +119,7 @@ func (pc *Proxychannel) runServer() {
 	stop()
 }
 
-// Run launches the extensions and the proxy server
+// Run launches the ExtensionManager and the HTTP server
 func (pc *Proxychannel) Run() {
 	pc.waitGroup.Add(1)
 	go pc.runExtensionManager()
