@@ -90,9 +90,9 @@ func (pc *Proxychannel) runServer() {
 		defer cancel()
 
 		if err := pc.server.Shutdown(gracefulCtx); err != nil {
-			Logger.Errorf("shutdown error: %v\n", err)
+			Logger.Errorf("Shutdown error: %v\n", err)
 		} else {
-			Logger.Info("gracefully stopped\n")
+			Logger.Info("Gracefully stopped\n")
 		}
 	}
 
