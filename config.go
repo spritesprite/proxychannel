@@ -1,13 +1,15 @@
 package proxychannel
 
 import (
+	"crypto/tls"
 	"net/http"
+	"time"
 
 	"github.com/ouqiang/goproxy"
-	"github.com/spritesprite/goproxy/cert"
+	"github.com/spritesprite/proxychannel/cert"
 )
 
-type NewExtensionFunction func(*ExtensionManager, ...interface{}) *Extension
+type NewExtensionFunction func(*ExtensionManager, ...interface{}) Extension
 
 type ExtensionConfig struct {
 	ExtNewFunc NewExtensionFunction
@@ -32,9 +34,16 @@ type ServerConfig struct {
 	TLSConfig    *tls.Config
 }
 
-// Config proxychannel config
-type Config struct {
-	extConf     ExtensionConfig
-	handlerConf HandlerConfig
-	serverConf  ServerConfig
+type LogConfig struct {
+	LoggerName string
+	LogLevel   string
+	LogOut     string
+	LogFormat  string
 }
+
+// Config proxychannel config
+// type Config struct {
+// 	extManagerConf ExtensionManagerConfig
+// 	handlerConf    *HandlerConfig
+// 	serverConf     *ServerConfig
+// }

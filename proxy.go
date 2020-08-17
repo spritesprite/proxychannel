@@ -13,7 +13,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/ouqiang/goproxy"
 	"github.com/spritesprite/proxychannel/cert"
 )
 
@@ -38,7 +37,7 @@ func makeTunnelRequestLine(addr string) string {
 
 type options struct {
 	disableKeepAlive bool
-	delegate         goproxy.Delegate
+	delegate         Delegate
 	decryptHTTPS     bool
 	certCache        cert.Cache
 	transport        *http.Transport
@@ -54,7 +53,7 @@ func WithDisableKeepAlive(disableKeepAlive bool) Option {
 }
 
 // WithDelegate 设置委托类
-func WithDelegate(delegate goproxy.Delegate) Option {
+func WithDelegate(delegate Delegate) Option {
 	return func(opt *options) {
 		opt.delegate = delegate
 	}
@@ -83,13 +82,13 @@ func WithoutDecryptHTTPS() Option {
 }
 
 // New 创建proxy实例
-func New(opt ...Option) *Proxy {
+func NewProxy(opt ...Option) *Proxy {
 	opts := &options{}
 	for _, o := range opt {
 		o(opts)
 	}
 	if opts.delegate == nil {
-		opts.delegate = &goproxy.DefaultDelegate{}
+		opts.delegate = &DefaultDelegate{}
 	}
 	if opts.transport == nil {
 		opts.transport = &http.Transport{
@@ -123,7 +122,7 @@ func New(opt ...Option) *Proxy {
 
 // Proxy 实现了http.Handler接口
 type Proxy struct {
-	delegate      goproxy.Delegate
+	delegate      Delegate
 	clientConnNum int32
 	decryptHTTPS  bool
 	cert          *cert.Certificate
