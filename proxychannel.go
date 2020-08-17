@@ -71,11 +71,13 @@ func (pc *Proxychannel) runExtensionManager() {
 
 	// Will block until shutdown signal is received
 	<-signalChan
-	Logger.Info("os.Interrupt - shutting down...\n")
+	Logger.Info("os.Interrupt captured by ExtensionManager, waiting for HTTP server to stop...\n")
 
 	// Will block until pc.server has been shut down
 	<-pc.serverDone
+	Logger.Info("HTTP server has been shut down, Cleanup ExtensionManager...\n")
 	pc.extensionManager.Cleanup()
+	Logger.Info("Cleanup ExtensionManager done, ExtensionManager gracefully stopped!\n")
 }
 
 func (pc *Proxychannel) runServer() {
@@ -90,9 +92,9 @@ func (pc *Proxychannel) runServer() {
 		defer cancel()
 
 		if err := pc.server.Shutdown(gracefulCtx); err != nil {
-			Logger.Errorf("Shutdown error: %v\n", err)
+			Logger.Errorf("HTTP server Shutdown error: %v\n", err)
 		} else {
-			Logger.Info("Gracefully stopped\n")
+			Logger.Info("HTTP server gracefully stopped\n")
 		}
 	}
 
@@ -115,12 +117,12 @@ func (pc *Proxychannel) runServer() {
 
 	// Will block until shutdown signal is received
 	<-signalChan
-	Logger.Info("os.Interrupt - shutting down...\n")
+	Logger.Info("os.Interrupt captured by HTTP server, shutting down HTTP server...\n")
 
 	// Terminate after second signal before callback is done
 	go func() {
 		<-signalChan
-		Logger.Error("os.Kill - terminating...\n")
+		Logger.Error("os.Interrupt captured twice by HTTP server, forcefully terminating HTTP server!\n")
 		os.Exit(1)
 	}()
 
