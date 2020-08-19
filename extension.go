@@ -15,6 +15,10 @@ func NewExtensionManager(m map[string]Extension) *ExtensionManager {
 	em := &ExtensionManager{
 		extensions: m,
 	}
+	for ename := range em.extensions {
+		em.extensions[ename].SetExtensionManager(em)
+	}
+
 	return em
 }
 
@@ -67,4 +71,5 @@ type Extension interface {
 	Setup() error
 	Cleanup() error
 	GetExtensionManager() *ExtensionManager
+	SetExtensionManager(*ExtensionManager)
 }
