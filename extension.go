@@ -11,29 +11,11 @@ type ExtensionManager struct {
 }
 
 // NewExtensionManager initialize an extension
-func NewExtensionManager(conf ExtensionManagerConfig) *ExtensionManager {
+func NewExtensionManager(m map[string]Extension) *ExtensionManager {
 	em := &ExtensionManager{
-		extensions: make(map[string]Extension),
+		extensions: m,
 	}
-	em.LoadExtensions(conf)
 	return em
-}
-
-func (em *ExtensionManager) loadExtension(name string, econf *ExtensionConfig) {
-	if em.extensions == nil {
-		em.extensions = make(map[string]Extension)
-	}
-	if _, ok := em.extensions[name]; ok {
-		Logger.Infof("Extension [%s] exists, now update it\n", name)
-	}
-	em.extensions[name] = econf.ExtNewFunc(em, econf.Params...)
-}
-
-// LoadExtensions load extensions from config file
-func (em *ExtensionManager) LoadExtensions(conf ExtensionManagerConfig) {
-	for name, econf := range conf {
-		em.loadExtension(name, econf)
-	}
 }
 
 // GetExtension get extension by name

@@ -24,9 +24,9 @@ type Proxychannel struct {
 }
 
 // NewProxychannel returns a new Proxychannel
-func NewProxychannel(hconf *HandlerConfig, sconf *ServerConfig, econf ExtensionManagerConfig) *Proxychannel {
+func NewProxychannel(hconf *HandlerConfig, sconf *ServerConfig, m map[string]Extension) *Proxychannel {
 	proxychannel := &Proxychannel{
-		extensionManager: NewExtensionManager(econf),
+		extensionManager: NewExtensionManager(m),
 		server:           NewServer(hconf, sconf),
 		waitGroup:        &sync.WaitGroup{},
 		serverDone:       make(chan bool),

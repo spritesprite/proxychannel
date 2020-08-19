@@ -53,18 +53,6 @@ var DefaultServerConfig *ServerConfig = &ServerConfig{
 	WriteTimeout: 60 * time.Second,
 }
 
-var DefaultExtensionManagerConfig ExtensionManagerConfig = make(map[string]*ExtensionConfig)
-
-type NewExtensionFunction func(*ExtensionManager, ...interface{}) Extension
-
-type ExtensionConfig struct {
-	ExtNewFunc NewExtensionFunction
-	Params     []interface{}
-}
-
-// ExtensionManagerConfig is the config of ext manager
-type ExtensionManagerConfig map[string]*ExtensionConfig
-
 type HandlerConfig struct {
 	disableKeepAlive bool
 	delegate         Delegate
@@ -86,10 +74,3 @@ type LogConfig struct {
 	LogOut     string
 	LogFormat  string
 }
-
-// Config proxychannel config
-// type Config struct {
-// 	extManagerConf ExtensionManagerConfig
-// 	handlerConf    *HandlerConfig
-// 	serverConf     *ServerConfig
-// }
