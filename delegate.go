@@ -24,20 +24,14 @@ func (c *Context) IsAborted() bool {
 }
 
 type Delegate interface {
-	// Connect 收到客户端连接
+	GetExtensionManager() *ExtensionManager
+	SetExtensionManager(*ExtensionManager)
 	Connect(ctx *Context, rw http.ResponseWriter)
-	// Auth 代理身份认证
 	Auth(ctx *Context, rw http.ResponseWriter)
-	// BeforeRequest HTTP请求前 设置X-Forwarded-For, 修改Header、Body
 	BeforeRequest(ctx *Context)
-	// BeforeResponse 响应发送到客户端前, 修改Header、Body、Status Code
 	BeforeResponse(ctx *Context, resp *http.Response, err error)
-	// ParentProxy 上级代理
 	ParentProxy(*http.Request) (*url.URL, error)
-	// Finish 本次请求结束
 	Finish(ctx *Context)
-	// 记录错误信息
-	ErrorLog(err error)
 }
 
 var _ Delegate = &DefaultDelegate{}

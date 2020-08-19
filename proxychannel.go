@@ -25,18 +25,19 @@ type Proxychannel struct {
 
 // NewProxychannel returns a new Proxychannel
 func NewProxychannel(hconf *HandlerConfig, sconf *ServerConfig, m map[string]Extension) *Proxychannel {
-	proxychannel := &Proxychannel{
+	pc := &Proxychannel{
 		extensionManager: NewExtensionManager(m),
-		server:           NewServer(hconf, sconf),
 		waitGroup:        &sync.WaitGroup{},
 		serverDone:       make(chan bool),
 	}
-	return proxychannel
+	pc.server = NewServer(hconf, sconf, pc.extensionManager)
+	return pc
 }
 
 // NewServer returns an http.Server that defined by user config
-func NewServer(hconf *HandlerConfig, sconf *ServerConfig) *http.Server {
-	handler := NewProxy(WithoutDecryptHTTPS())
+func NewServer(hconf *HandlerConfig, sconf *ServerConfig, em *ExtensionManager) *http.Server {
+	// handler := NewProxy(WithoutDecryptHTTPS())
+	handler := NewProxy(hconf, em)
 	server := &http.Server{
 		Addr:         sconf.ProxyAddr,
 		Handler:      handler,
