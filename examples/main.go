@@ -10,6 +10,6 @@ func main() {
 	pc := proxychannel.NewProxychannel(
 		proxychannel.DefaultHandlerConfig,
 		proxychannel.DefaultServerConfig,
-		proxychannel.DefaultExtensionManagerConfig)
+		make(map[string]proxychannel.Extension))
 	pc.Run()
 }
