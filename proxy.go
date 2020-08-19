@@ -84,14 +84,39 @@ func WithoutDecryptHTTPS() Option {
 // NewProxy creates a Proxy instance (an HTTP handler)
 func NewProxy(hconf *HandlerConfig, em *ExtensionManager) *Proxy {
 	p := &Proxy{}
-	p.delegate = hconf.delegate
-	p.delegate.SetExtensionManager(em)
-	p.decryptHTTPS = hconf.decryptHTTPS
-	if p.decryptHTTPS {
-		p.cert = cert.NewCertificate(hconf.certCache)
+
+	if hconf.Delegate == nil {
+		p.delegate = &DefaultDelegate{}
+	} else {
+		p.delegate = hconf.Delegate
 	}
-	p.transport = hconf.transport
-	p.transport.DisableKeepAlives = hconf.disableKeepAlive
+	p.delegate.SetExtensionManager(em)
+
+	p.decryptHTTPS = hconf.DecryptHTTPS
+	if p.decryptHTTPS {
+		p.cert = cert.NewCertificate(hconf.CertCache)
+	}
+
+	if hconf.Transport == nil {
+		p.transport = &http.Transport{
+			TLSClientConfig: &tls.Config{
+				// No need to verify because as a proxy we don't care
+				InsecureSkipVerify: true,
+			},
+			DialContext: (&net.Dialer{
+				Timeout:   30 * time.Second,
+				KeepAlive: 30 * time.Second,
+				DualStack: true,
+			}).DialContext,
+			MaxIdleConns:          100,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+		}
+	} else {
+		p.transport = hconf.Transport
+	}
+	p.transport.DisableKeepAlives = hconf.DisableKeepAlive
 	p.transport.Proxy = p.delegate.ParentProxy
 	return p
 }

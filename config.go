@@ -27,11 +27,11 @@ func (c *Cache) Get(host string) *tls.Certificate {
 }
 
 var DefaultHandlerConfig *HandlerConfig = &HandlerConfig{
-	disableKeepAlive: false,
-	delegate:         &DefaultDelegate{},
-	decryptHTTPS:     false,
-	certCache:        &Cache{},
-	transport: &http.Transport{
+	DisableKeepAlive: false,
+	Delegate:         &DefaultDelegate{},
+	DecryptHTTPS:     false,
+	CertCache:        &Cache{},
+	Transport: &http.Transport{
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: true,
 		},
@@ -54,11 +54,11 @@ var DefaultServerConfig *ServerConfig = &ServerConfig{
 }
 
 type HandlerConfig struct {
-	disableKeepAlive bool
-	delegate         Delegate
-	decryptHTTPS     bool
-	certCache        cert.Cache
-	transport        *http.Transport
+	DisableKeepAlive bool
+	Delegate         Delegate
+	DecryptHTTPS     bool
+	CertCache        cert.Cache
+	Transport        *http.Transport
 }
 
 type ServerConfig struct {
