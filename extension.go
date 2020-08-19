@@ -66,5 +66,5 @@ func (em *ExtensionManager) Cleanup() {
 type Extension interface {
 	Setup() error
 	Cleanup() error
-	GetExtensionManager() (*ExtensionManager, error)
+	GetExtensionManager() *ExtensionManager
 }
