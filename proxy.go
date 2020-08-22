@@ -103,8 +103,6 @@ func (p *Proxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// req.URL.Scheme == "http"
-
 	switch {
 	case ctx.Req.Method == http.MethodConnect && p.decryptHTTPS:
 		p.forwardHTTPS(ctx, rw)
@@ -153,7 +151,6 @@ func (p *Proxy) DoRequest(ctx *Context, responseFunc func(*http.Response, error)
 	responseFunc(resp, err)
 }
 
-// HTTP转发
 func (p *Proxy) forwardHTTP(ctx *Context, rw http.ResponseWriter) {
 	ctx.Req.URL.Scheme = "http"
 	p.DoRequest(ctx, func(resp *http.Response, err error) {
@@ -169,7 +166,6 @@ func (p *Proxy) forwardHTTP(ctx *Context, rw http.ResponseWriter) {
 	})
 }
 
-// HTTPS转发
 func (p *Proxy) forwardHTTPS(ctx *Context, rw http.ResponseWriter) {
 	clientConn, err := hijacker(rw)
 	if err != nil {
