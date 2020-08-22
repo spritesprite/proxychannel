@@ -106,9 +106,9 @@ func (p *Proxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	if ctx.Req.Method == http.MethodConnect {
 		h := ctx.Req.Header.Get("MITM")
 		if h == "Enabled" {
-			p.forwardTunnel(ctx, rw)
-		} else {
 			p.forwardHTTPS(ctx, rw)
+		} else {
+			p.forwardTunnel(ctx, rw)
 		}
 	} else {
 		p.forwardHTTP(ctx, rw)
