@@ -1,28 +1,28 @@
 package proxychannel
 
 import (
-	"log"
 	"net/http"
 	"net/url"
 )
 
-// Context 代理上下文
+// Context stores what methods of Delegate would need as input.
 type Context struct {
 	Req   *http.Request
 	Data  map[interface{}]interface{}
 	abort bool
 }
 
-// Abort 中断执行
+// Abort sets abort to true.
 func (c *Context) Abort() {
 	c.abort = true
 }
 
-// IsAborted 是否已中断执行
+// IsAborted checks whether abort is set to true.
 func (c *Context) IsAborted() bool {
 	return c.abort
 }
 
+// Delegate defines some extra manipulation on requests set by user.
 type Delegate interface {
 	GetExtensionManager() *ExtensionManager
 	SetExtensionManager(*ExtensionManager)
@@ -36,25 +36,35 @@ type Delegate interface {
 
 var _ Delegate = &DefaultDelegate{}
 
-// DefaultDelegate 默认Handler什么也不做
+// DefaultDelegate basically does nothing.
 type DefaultDelegate struct {
 	Delegate
 }
 
+// GetExtensionManager .
+func (h *DefaultDelegate) GetExtensionManager() *ExtensionManager {
+	return nil
+}
+
+// SetExtensionManager .
+func (h *DefaultDelegate) SetExtensionManager(em *ExtensionManager) {}
+
+// Connect .
 func (h *DefaultDelegate) Connect(ctx *Context, rw http.ResponseWriter) {}
 
+// Auth .
 func (h *DefaultDelegate) Auth(ctx *Context, rw http.ResponseWriter) {}
 
+// BeforeRequest .
 func (h *DefaultDelegate) BeforeRequest(ctx *Context) {}
 
+// BeforeResponse .
 func (h *DefaultDelegate) BeforeResponse(ctx *Context, resp *http.Response, err error) {}
 
+// ParentProxy .
 func (h *DefaultDelegate) ParentProxy(req *http.Request) (*url.URL, error) {
 	return http.ProxyFromEnvironment(req)
 }
 
+// Finish .
 func (h *DefaultDelegate) Finish(ctx *Context) {}
-
-func (h *DefaultDelegate) ErrorLog(err error) {
-	log.Println(err)
-}

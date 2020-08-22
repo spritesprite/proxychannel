@@ -17,69 +17,28 @@ import (
 )
 
 const (
-	// 连接目标服务器超时时间
-	defaultTargetConnectTimeout = 5 * time.Second
-	// 目标服务器读写超时时间
+	defaultTargetConnectTimeout   = 5 * time.Second
 	defaultTargetReadWriteTimeout = 30 * time.Second
-	// 客户端读写超时时间
 	defaultClientReadWriteTimeout = 30 * time.Second
 )
 
-// 隧道连接成功响应行
-var tunnelEstablishedResponseLine = []byte("HTTP/1.1 200 Connection established\r\n\r\n")
-
+var tunnelEstablishedResponseLine = []byte(fmt.Sprintf("HTTP/1.1 %d Connection established\r\n\r\n", http.StatusOK))
 var badGateway = []byte(fmt.Sprintf("HTTP/1.1 %d %s\r\n\r\n", http.StatusBadGateway, http.StatusText(http.StatusBadGateway)))
 
-// 生成隧道建立请求行
 func makeTunnelRequestLine(addr string) string {
 	return fmt.Sprintf("CONNECT %s HTTP/1.1\r\n\r\n", addr)
 }
 
-type options struct {
-	disableKeepAlive bool
-	delegate         Delegate
-	decryptHTTPS     bool
-	certCache        cert.Cache
-	transport        *http.Transport
+// Proxy is a struct that implements ServeHTTP() method
+type Proxy struct {
+	delegate      Delegate
+	clientConnNum int32
+	decryptHTTPS  bool
+	cert          *cert.Certificate
+	transport     *http.Transport
 }
 
-type Option func(*options)
-
-// WithDisableKeepAlive 连接是否重用
-func WithDisableKeepAlive(disableKeepAlive bool) Option {
-	return func(opt *options) {
-		opt.disableKeepAlive = disableKeepAlive
-	}
-}
-
-// WithDelegate 设置委托类
-func WithDelegate(delegate Delegate) Option {
-	return func(opt *options) {
-		opt.delegate = delegate
-	}
-}
-
-// WithTransport 自定义http transport
-func WithTransport(t *http.Transport) Option {
-	return func(opt *options) {
-		opt.transport = t
-	}
-}
-
-// WithDecryptHTTPS 中间人代理, 解密HTTPS, 需实现证书缓存接口
-func WithDecryptHTTPS(c cert.Cache) Option {
-	return func(opt *options) {
-		opt.decryptHTTPS = true
-		opt.certCache = c
-	}
-}
-
-// WithoutDecryptHTTPS http tunnel
-func WithoutDecryptHTTPS() Option {
-	return func(opt *options) {
-		opt.decryptHTTPS = false
-	}
-}
+var _ http.Handler = &Proxy{}
 
 // NewProxy creates a Proxy instance (an HTTP handler)
 func NewProxy(hconf *HandlerConfig, em *ExtensionManager) *Proxy {
@@ -121,18 +80,7 @@ func NewProxy(hconf *HandlerConfig, em *ExtensionManager) *Proxy {
 	return p
 }
 
-// Proxy 实现了http.Handler接口
-type Proxy struct {
-	delegate      Delegate
-	clientConnNum int32
-	decryptHTTPS  bool
-	cert          *cert.Certificate
-	transport     *http.Transport
-}
-
-var _ http.Handler = &Proxy{}
-
-// ServeHTTP 实现了http.Handler接口
+// ServeHTTP .
 func (p *Proxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	if req.URL.Host == "" {
 		req.URL.Host = req.Host
@@ -155,6 +103,8 @@ func (p *Proxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// req.URL.Scheme == "http"
+
 	switch {
 	case ctx.Req.Method == http.MethodConnect && p.decryptHTTPS:
 		p.forwardHTTPS(ctx, rw)
@@ -165,7 +115,7 @@ func (p *Proxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	}
 }
 
-// ClientConnNum 获取客户端连接数
+// ClientConnNum gets the Client
 func (p *Proxy) ClientConnNum() int32 {
 	return atomic.LoadInt32(&p.clientConnNum)
 }

@@ -45,6 +45,7 @@ func init() {
 	logging.SetFormatter(formatter)
 }
 
+// ConfigLogging sets the log style.
 func ConfigLogging(conf *LogConfig) error {
 	if err := SetLoggingBackend(conf.LogOut); err != nil {
 		return err
