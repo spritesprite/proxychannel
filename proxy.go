@@ -142,7 +142,10 @@ func (p *Proxy) DoRequest(ctx *Context, responseFunc func(*http.Response, error)
 	}
 	// p.transport.ForceAttemptHTTP2 = true // for test
 	resp, err := p.transport.RoundTrip(newReq)
-	p.delegate.BeforeResponse(ctx, resp, err)
+	p.delegate.BeforeResponse(ctx, &ResponseWrapper{
+		Resp: resp,
+		Err:  err,
+	})
 	if ctx.abort {
 		return
 	}

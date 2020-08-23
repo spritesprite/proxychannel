@@ -5,6 +5,12 @@ import (
 	"net/url"
 )
 
+// ResponseWrapper is simply a wrapper for http.Response and error.
+type ResponseWrapper struct {
+	Resp *http.Response
+	Err  error
+}
+
 // Context stores what methods of Delegate would need as input.
 type Context struct {
 	Req   *http.Request
@@ -29,7 +35,7 @@ type Delegate interface {
 	Connect(ctx *Context, rw http.ResponseWriter)
 	Auth(ctx *Context, rw http.ResponseWriter)
 	BeforeRequest(ctx *Context)
-	BeforeResponse(ctx *Context, resp *http.Response, err error)
+	BeforeResponse(ctx *Context, resp *ResponseWrapper)
 	ParentProxy(*http.Request) (*url.URL, error)
 	Finish(ctx *Context)
 }
@@ -59,7 +65,7 @@ func (h *DefaultDelegate) Auth(ctx *Context, rw http.ResponseWriter) {}
 func (h *DefaultDelegate) BeforeRequest(ctx *Context) {}
 
 // BeforeResponse .
-func (h *DefaultDelegate) BeforeResponse(ctx *Context, resp *http.Response, err error) {}
+func (h *DefaultDelegate) BeforeResponse(ctx *Context, resp *ResponseWrapper) {}
 
 // ParentProxy .
 func (h *DefaultDelegate) ParentProxy(req *http.Request) (*url.URL, error) {
