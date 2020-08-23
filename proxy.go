@@ -120,7 +120,8 @@ func (p *Proxy) ClientConnNum() int32 {
 	return atomic.LoadInt32(&p.clientConnNum)
 }
 
-// DoRequest 执行HTTP请求，并调用responseFunc处理response
+// DoRequest makes a request to remote server as a clent through given proxy,
+// and calls responseFunc before returning the response.
 func (p *Proxy) DoRequest(ctx *Context, responseFunc func(*http.Response, error)) {
 	if ctx.Data == nil {
 		ctx.Data = make(map[interface{}]interface{})
@@ -157,7 +158,7 @@ func (p *Proxy) forwardHTTP(ctx *Context, rw http.ResponseWriter) {
 	ctx.Req.URL.Scheme = "http"
 	p.DoRequest(ctx, func(resp *http.Response, err error) {
 		if err != nil {
-			fmt.Println(fmt.Errorf("%s - HTTP请求错误: , 错误: %s", ctx.Req.URL, err))
+			Logger.Errorf("forwardHTTP %s forward request failed: %s", ctx.Req.URL, err)
 			rw.WriteHeader(http.StatusBadGateway)
 			return
 		}
@@ -171,19 +172,19 @@ func (p *Proxy) forwardHTTP(ctx *Context, rw http.ResponseWriter) {
 func (p *Proxy) forwardHTTPS(ctx *Context, rw http.ResponseWriter) {
 	clientConn, err := hijacker(rw)
 	if err != nil {
-		fmt.Println(err)
+		Logger.Errorf("forwardHTTPS hijack client connection failed: %s", err)
 		rw.WriteHeader(http.StatusBadGateway)
 		return
 	}
 	defer clientConn.Close()
 	_, err = clientConn.Write(tunnelEstablishedResponseLine)
 	if err != nil {
-		fmt.Println(fmt.Errorf("%s - HTTPS解密, 通知客户端隧道已连接失败, %s", ctx.Req.URL.Host, err))
+		Logger.Errorf("forwardHTTPS %s write message failed: %s", ctx.Req.URL.Host, err)
 		return
 	}
 	tlsConfig, err := p.cert.GenerateTlsConfig(ctx.Req.URL.Host)
 	if err != nil {
-		fmt.Println(fmt.Errorf("%s - HTTPS解密, 生成证书失败: %s", ctx.Req.URL.Host, err))
+		Logger.Errorf("forwardHTTPS %s generate tlsConfig failed: %s", ctx.Req.URL.Host, err)
 		rw.WriteHeader(http.StatusBadGateway)
 		return
 	}
@@ -192,14 +193,14 @@ func (p *Proxy) forwardHTTPS(ctx *Context, rw http.ResponseWriter) {
 	tlsClientConn.SetDeadline(time.Now().Add(defaultClientReadWriteTimeout))
 	defer tlsClientConn.Close()
 	if err := tlsClientConn.Handshake(); err != nil {
-		fmt.Println(fmt.Errorf("%s - HTTPS解密, 握手失败: %s", ctx.Req.URL.Host, err))
+		Logger.Errorf("forwardHTTPS %s handshake failed: %s", ctx.Req.URL.Host, err)
 		return
 	}
 	buf := bufio.NewReader(tlsClientConn)
 	tlsReq, err := http.ReadRequest(buf)
 	if err != nil {
 		if err != io.EOF {
-			fmt.Println(fmt.Errorf("%s - HTTPS解密, 读取客户端请求失败: %s", ctx.Req.URL.Host, err))
+			Logger.Errorf("forwardHTTPS %s read client request failed: %s", ctx.Req.URL.Host, err)
 		}
 		return
 	}
@@ -210,30 +211,29 @@ func (p *Proxy) forwardHTTPS(ctx *Context, rw http.ResponseWriter) {
 	ctx.Req = tlsReq
 	p.DoRequest(ctx, func(resp *http.Response, err error) {
 		if err != nil {
-			fmt.Println(fmt.Errorf("%s - HTTPS解密, 请求错误: %s", ctx.Req.URL, err))
+			Logger.Errorf("forwardHTTPS %s forward request failed: %s", ctx.Req.URL.Host, err)
 			tlsClientConn.Write(badGateway)
 			return
 		}
 		err = resp.Write(tlsClientConn)
 		if err != nil {
-			fmt.Println(fmt.Errorf("%s - HTTPS解密, response写入客户端失败, %s", ctx.Req.URL, err))
+			Logger.Errorf("forwardHTTPS %s write response to client connection failed: %s", ctx.Req.URL.Host, err)
 		}
 		resp.Body.Close()
 	})
 }
 
-// 隧道转发
 func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 	clientConn, err := hijacker(rw)
 	if err != nil {
-		fmt.Println(err)
+		Logger.Errorf("forwardTunnel hijack client connection failed: %s", err)
 		rw.WriteHeader(http.StatusBadGateway)
 		return
 	}
 	defer clientConn.Close()
 	parentProxyURL, err := p.delegate.ParentProxy(ctx.Req)
 	if err != nil {
-		fmt.Println(fmt.Errorf("%s - 解析代理地址错误: %s", ctx.Req.URL.Host, err))
+		Logger.Errorf("forwardTunnel %s get proxy failed: %s", ctx.Req.URL.Host, err)
 		rw.WriteHeader(http.StatusBadGateway)
 		return
 	}
@@ -244,7 +244,7 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 
 	targetConn, err := net.DialTimeout("tcp", targetAddr, defaultTargetConnectTimeout)
 	if err != nil {
-		fmt.Println(fmt.Errorf("%s - 隧道转发连接目标服务器失败: %s", ctx.Req.URL.Host, err))
+		Logger.Errorf("forwardTunnel %s dial remote server failed: %s", ctx.Req.URL.Host, err)
 		rw.WriteHeader(http.StatusBadGateway)
 		return
 	}
@@ -254,7 +254,7 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 	if parentProxyURL == nil {
 		_, err = clientConn.Write(tunnelEstablishedResponseLine)
 		if err != nil {
-			fmt.Println(fmt.Errorf("%s - 隧道连接成功,通知客户端错误: %s", ctx.Req.URL.Host, err))
+			Logger.Errorf("forwardTunnel %s write message failed: %s", ctx.Req.URL.Host, err)
 			return
 		}
 	} else {
@@ -265,7 +265,7 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 	p.transfer(clientConn, targetConn)
 }
 
-// 双向转发
+// transfer does two-way forwarding through connections
 func (p *Proxy) transfer(src net.Conn, dst net.Conn) {
 	go func() {
 		io.Copy(src, dst)
@@ -278,21 +278,21 @@ func (p *Proxy) transfer(src net.Conn, dst net.Conn) {
 	src.Close()
 }
 
-// 获取底层连接
+// hijacker gets the underlying connection of an http.ResponseWriter
 func hijacker(rw http.ResponseWriter) (net.Conn, error) {
 	hijacker, ok := rw.(http.Hijacker)
 	if !ok {
-		return nil, fmt.Errorf("web server不支持Hijacker")
+		return nil, fmt.Errorf("hijacker is not supported")
 	}
 	conn, _, err := hijacker.Hijack()
 	if err != nil {
-		return nil, fmt.Errorf("hijacker错误: %s", err)
+		return nil, fmt.Errorf("hijacker failed: %s", err)
 	}
 
 	return conn, nil
 }
 
-// CopyHeader 浅拷贝Header
+// CopyHeader shallow copy.
 func CopyHeader(dst, src http.Header) {
 	for k, vv := range src {
 		for _, v := range vv {
@@ -301,7 +301,7 @@ func CopyHeader(dst, src http.Header) {
 	}
 }
 
-// CloneHeader 深拷贝Header
+// CloneHeader deep copy.
 func CloneHeader(h http.Header) http.Header {
 	h2 := make(http.Header, len(h))
 	for k, vv := range h {
@@ -312,7 +312,7 @@ func CloneHeader(h http.Header) http.Header {
 	return h2
 }
 
-// CloneBody 拷贝Body
+// CloneBody deep copy.
 func CloneBody(b io.ReadCloser) (r io.ReadCloser, body []byte, err error) {
 	if b == nil {
 		return http.NoBody, nil, nil
