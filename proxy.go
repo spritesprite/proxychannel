@@ -51,10 +51,11 @@ func NewProxy(hconf *HandlerConfig, em *ExtensionManager) *Proxy {
 	}
 	p.delegate.SetExtensionManager(em)
 
-	p.decryptHTTPS = hconf.DecryptHTTPS
-	if p.decryptHTTPS {
-		p.cert = cert.NewCertificate(hconf.CertCache)
-	}
+	// p.decryptHTTPS = hconf.DecryptHTTPS
+	// if p.decryptHTTPS {
+	// 	p.cert = cert.NewCertificate(hconf.CertCache)
+	// }
+	p.cert = cert.NewCertificate(hconf.CertCache)
 
 	if hconf.Transport == nil {
 		p.transport = &http.Transport{
