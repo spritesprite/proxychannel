@@ -107,14 +107,11 @@ func (p *Proxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	if ctx.Req.Method == http.MethodConnect {
 		h := ctx.Req.Header.Get("MITM")
 		if h == "Enabled" {
-			removeMITMHeaders(ctx.Req.Header)
 			p.forwardHTTPS(ctx, rw)
 		} else {
-			removeMITMHeaders(ctx.Req.Header)
 			p.forwardTunnel(ctx, rw)
 		}
 	} else {
-		removeMITMHeaders(ctx.Req.Header)
 		p.forwardHTTP(ctx, rw)
 	}
 }
@@ -137,6 +134,7 @@ func (p *Proxy) DoRequest(ctx *Context, responseFunc func(*http.Response, error)
 	newReq := new(http.Request)
 	*newReq = *ctx.Req
 	newReq.Header = CloneHeader(newReq.Header)
+	removeMITMHeaders(newReq.Header)
 	removeConnectionHeaders(newReq.Header)
 	for _, item := range hopHeaders {
 		if newReq.Header.Get(item) != "" {
@@ -357,10 +355,6 @@ func removeConnectionHeaders(h http.Header) {
 
 func removeMITMHeaders(h http.Header) {
 	if c := h.Get("MITM"); c != "" {
-		for _, f := range strings.Split(c, ",") {
-			if f = strings.TrimSpace(f); f != "" {
-				h.Del(f)
-			}
-		}
+		h.Del("MITM")
 	}
 }
