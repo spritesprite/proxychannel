@@ -107,11 +107,14 @@ func (p *Proxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	if ctx.Req.Method == http.MethodConnect {
 		h := ctx.Req.Header.Get("MITM")
 		if h == "Enabled" {
+			removeMITMHeaders(ctx.Req.Header)
 			p.forwardHTTPS(ctx, rw)
 		} else {
+			removeMITMHeaders(ctx.Req.Header)
 			p.forwardTunnel(ctx, rw)
 		}
 	} else {
+		removeMITMHeaders(ctx.Req.Header)
 		p.forwardHTTP(ctx, rw)
 	}
 }
@@ -344,6 +347,16 @@ var hopHeaders = []string{
 
 func removeConnectionHeaders(h http.Header) {
 	if c := h.Get("Connection"); c != "" {
+		for _, f := range strings.Split(c, ",") {
+			if f = strings.TrimSpace(f); f != "" {
+				h.Del(f)
+			}
+		}
+	}
+}
+
+func removeMITMHeaders(h http.Header) {
+	if c := h.Get("MITM"); c != "" {
 		for _, f := range strings.Split(c, ",") {
 			if f = strings.TrimSpace(f); f != "" {
 				h.Del(f)
