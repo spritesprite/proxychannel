@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -77,7 +78,7 @@ func NewProxy(hconf *HandlerConfig, em *ExtensionManager) *Proxy {
 		p.transport = hconf.Transport
 	}
 	p.transport.DisableKeepAlives = hconf.DisableKeepAlive
-	p.transport.Proxy = p.delegate.ParentProxy
+	// p.transport.Proxy = p.delegate.ParentProxy
 	return p
 }
 
@@ -123,7 +124,7 @@ func (p *Proxy) ClientConnNum() int32 {
 
 // DoRequest makes a request to remote server as a clent through given proxy,
 // and calls responseFunc before returning the response.
-func (p *Proxy) DoRequest(ctx *Context, responseFunc func(*http.Response, error)) {
+func (p *Proxy) DoRequest(ctx *Context, rw http.ResponseWriter, responseFunc func(*http.Response, error)) {
 	if ctx.Data == nil {
 		ctx.Data = make(map[interface{}]interface{})
 	}
@@ -141,12 +142,21 @@ func (p *Proxy) DoRequest(ctx *Context, responseFunc func(*http.Response, error)
 			newReq.Header.Del(item)
 		}
 	}
-	// p.transport.ForceAttemptHTTP2 = true // for test
+	// p.transport.ForceAttemptHTTP2 = true // for HTTP/2 test
+	parentProxyURL, err := p.delegate.ParentProxy(ctx, rw)
+	if ctx.abort {
+		return
+	}
+	p.transport.Proxy = func(req *http.Request) (*url.URL, error) {
+		return parentProxyURL, err
+	}
+
 	resp, err := p.transport.RoundTrip(newReq)
-	p.delegate.BeforeResponse(ctx, &ResponseWrapper{
+	respWrapper := &ResponseWrapper{
 		Resp: resp,
 		Err:  err,
-	})
+	}
+	p.delegate.BeforeResponse(ctx, respWrapper)
 	if ctx.abort {
 		return
 	}
@@ -161,7 +171,7 @@ func (p *Proxy) DoRequest(ctx *Context, responseFunc func(*http.Response, error)
 
 func (p *Proxy) forwardHTTP(ctx *Context, rw http.ResponseWriter) {
 	ctx.Req.URL.Scheme = "http"
-	p.DoRequest(ctx, func(resp *http.Response, err error) {
+	p.DoRequest(ctx, rw, func(resp *http.Response, err error) {
 		if err != nil {
 			Logger.Errorf("forwardHTTP %s forward request failed: %s", ctx.Req.URL, err)
 			rw.WriteHeader(http.StatusBadGateway)
@@ -214,7 +224,7 @@ func (p *Proxy) forwardHTTPS(ctx *Context, rw http.ResponseWriter) {
 	tlsReq.URL.Host = tlsReq.Host
 
 	ctx.Req = tlsReq
-	p.DoRequest(ctx, func(resp *http.Response, err error) {
+	p.DoRequest(ctx, rw, func(resp *http.Response, err error) {
 		if err != nil {
 			Logger.Errorf("forwardHTTPS %s forward request failed: %s", ctx.Req.URL.Host, err)
 			tlsClientConn.Write(badGateway)
@@ -236,12 +246,11 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 		return
 	}
 	defer clientConn.Close()
-	parentProxyURL, err := p.delegate.ParentProxy(ctx.Req)
-	if err != nil {
-		Logger.Errorf("forwardTunnel %s get proxy failed: %s", ctx.Req.URL.Host, err)
-		rw.WriteHeader(http.StatusBadGateway)
+	parentProxyURL, err := p.delegate.ParentProxy(ctx, rw)
+	if ctx.abort {
 		return
 	}
+
 	targetAddr := ctx.Req.URL.Host
 	if parentProxyURL != nil {
 		targetAddr = parentProxyURL.Host
