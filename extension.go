@@ -40,7 +40,8 @@ func (em *ExtensionManager) Setup() {
 			defer wg.Done()
 			Logger.Infof("Extension [%s] Setup start!\n", name)
 			if err := ext.Setup(); err != nil {
-				// if sth went wrong, delete the ext in extensions
+				Logger.Errorf("Extension [%s] Setup error: %v\n", name, err)
+				return
 			}
 			Logger.Infof("Extension [%s] Setup done!\n", name)
 		}(name, ext)
@@ -57,7 +58,7 @@ func (em *ExtensionManager) Cleanup() {
 			defer wg.Done()
 			Logger.Infof("Extension [%s] Cleanup start!\n", name)
 			if err := ext.Cleanup(); err != nil {
-				Logger.Errorf("Extension [%s] Cleanup: %v\n", name, err)
+				Logger.Errorf("Extension [%s] Cleanup error: %v\n", name, err)
 				return
 			}
 			Logger.Infof("Extension [%s] Cleanup done!\n", name)
