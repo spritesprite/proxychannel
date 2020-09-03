@@ -185,6 +185,12 @@ func (p *Proxy) forwardHTTP(ctx *Context, rw http.ResponseWriter) {
 }
 
 func (p *Proxy) forwardHTTPS(ctx *Context, rw http.ResponseWriter) {
+	tlsConfig, err := p.cert.GenerateTlsConfig(ctx.Req.URL.Host)
+	if err != nil {
+		Logger.Errorf("forwardHTTPS %s generate tlsConfig failed: %s", ctx.Req.URL.Host, err)
+		rw.WriteHeader(http.StatusBadGateway)
+		return
+	}
 	clientConn, err := hijacker(rw)
 	if err != nil {
 		Logger.Errorf("forwardHTTPS hijack client connection failed: %s", err)
@@ -195,12 +201,6 @@ func (p *Proxy) forwardHTTPS(ctx *Context, rw http.ResponseWriter) {
 	_, err = clientConn.Write(tunnelEstablishedResponseLine)
 	if err != nil {
 		Logger.Errorf("forwardHTTPS %s write message failed: %s", ctx.Req.URL.Host, err)
-		return
-	}
-	tlsConfig, err := p.cert.GenerateTlsConfig(ctx.Req.URL.Host)
-	if err != nil {
-		Logger.Errorf("forwardHTTPS %s generate tlsConfig failed: %s", ctx.Req.URL.Host, err)
-		rw.WriteHeader(http.StatusBadGateway)
 		return
 	}
 	// tlsConfig.NextProtos = []string{"h2", "http/1.1", "http/1.0"}
@@ -239,6 +239,10 @@ func (p *Proxy) forwardHTTPS(ctx *Context, rw http.ResponseWriter) {
 }
 
 func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
+	parentProxyURL, err := p.delegate.ParentProxy(ctx, rw)
+	if ctx.abort {
+		return
+	}
 	clientConn, err := hijacker(rw)
 	if err != nil {
 		Logger.Errorf("forwardTunnel hijack client connection failed: %s", err)
@@ -246,10 +250,6 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 		return
 	}
 	defer clientConn.Close()
-	parentProxyURL, err := p.delegate.ParentProxy(ctx, rw)
-	if ctx.abort {
-		return
-	}
 
 	targetAddr := ctx.Req.URL.Host
 	if parentProxyURL != nil {
@@ -259,7 +259,8 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 	targetConn, err := net.DialTimeout("tcp", targetAddr, defaultTargetConnectTimeout)
 	if err != nil {
 		Logger.Errorf("forwardTunnel %s dial remote server failed: %s", ctx.Req.URL.Host, err)
-		rw.WriteHeader(http.StatusBadGateway)
+		clientConn.Write(badGateway)
+		// rw.WriteHeader(http.StatusBadGateway)
 		return
 	}
 	defer targetConn.Close()
