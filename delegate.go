@@ -37,7 +37,7 @@ type Delegate interface {
 	BeforeRequest(ctx *Context)
 	BeforeResponse(ctx *Context, resp *ResponseWrapper)
 	ParentProxy(ctx *Context, rw http.ResponseWriter) (*url.URL, error)
-	Finish(ctx *Context)
+	Finish(ctx *Context, rw http.ResponseWriter)
 }
 
 var _ Delegate = &DefaultDelegate{}
@@ -73,4 +73,4 @@ func (h *DefaultDelegate) ParentProxy(ctx *Context, rw http.ResponseWriter) (*ur
 }
 
 // Finish .
-func (h *DefaultDelegate) Finish(ctx *Context) {}
+func (h *DefaultDelegate) Finish(ctx *Context, rw http.ResponseWriter) {}

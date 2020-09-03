@@ -95,7 +95,7 @@ func (p *Proxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		Req:  req,
 		Data: make(map[interface{}]interface{}),
 	}
-	defer p.delegate.Finish(ctx)
+	defer p.delegate.Finish(ctx, rw)
 	p.delegate.Connect(ctx, rw)
 	if ctx.abort {
 		return
