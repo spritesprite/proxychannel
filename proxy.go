@@ -92,8 +92,9 @@ func (p *Proxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		atomic.AddInt32(&p.clientConnNum, -1)
 	}()
 	ctx := &Context{
-		Req:  req,
-		Data: make(map[interface{}]interface{}),
+		Req:    req,
+		Data:   make(map[interface{}]interface{}),
+		Hijack: false,
 	}
 	defer p.delegate.Finish(ctx, rw)
 	p.delegate.Connect(ctx, rw)
@@ -124,7 +125,16 @@ func (p *Proxy) ClientConnNum() int32 {
 
 // DoRequest makes a request to remote server as a clent through given proxy,
 // and calls responseFunc before returning the response.
-func (p *Proxy) DoRequest(ctx *Context, rw http.ResponseWriter, responseFunc func(*http.Response, error)) {
+// The "conn" is needed when it comes to https request, and only one conn is accepted.
+func (p *Proxy) DoRequest(ctx *Context, rw http.ResponseWriter, responseFunc func(*http.Response, error), conn ...interface{}) {
+	if len(conn) > 1 {
+		return
+	}
+	var clientConn *tls.Conn
+	if len(conn) == 1 {
+		c := conn[0]
+		clientConn, _ = c.(*tls.Conn)
+	}
 	if ctx.Data == nil {
 		ctx.Data = make(map[interface{}]interface{})
 	}
@@ -142,8 +152,15 @@ func (p *Proxy) DoRequest(ctx *Context, rw http.ResponseWriter, responseFunc fun
 			newReq.Header.Del(item)
 		}
 	}
+
 	// p.transport.ForceAttemptHTTP2 = true // for HTTP/2 test
-	parentProxyURL, err := p.delegate.ParentProxy(ctx, rw)
+	var parentProxyURL *url.URL
+	var err error
+	if ctx.Hijack {
+		parentProxyURL, err = p.delegate.ParentProxy(ctx, clientConn)
+	} else {
+		parentProxyURL, err = p.delegate.ParentProxy(ctx, rw)
+	}
 	if ctx.abort {
 		return
 	}
@@ -197,6 +214,7 @@ func (p *Proxy) forwardHTTPS(ctx *Context, rw http.ResponseWriter) {
 		rw.WriteHeader(http.StatusBadGateway)
 		return
 	}
+	ctx.Hijack = true
 	defer clientConn.Close()
 	_, err = clientConn.Write(tunnelEstablishedResponseLine)
 	if err != nil {
@@ -235,7 +253,7 @@ func (p *Proxy) forwardHTTPS(ctx *Context, rw http.ResponseWriter) {
 			Logger.Errorf("forwardHTTPS %s write response to client connection failed: %s", ctx.Req.URL.Host, err)
 		}
 		resp.Body.Close()
-	})
+	}, tlsClientConn)
 }
 
 func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
@@ -249,6 +267,7 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 		rw.WriteHeader(http.StatusBadGateway)
 		return
 	}
+	ctx.Hijack = true
 	defer clientConn.Close()
 
 	targetAddr := ctx.Req.URL.Host

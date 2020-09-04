@@ -1,6 +1,7 @@
 package proxychannel
 
 import (
+	// "crypto/tls"
 	"net/http"
 	"net/url"
 )
@@ -13,9 +14,10 @@ type ResponseWrapper struct {
 
 // Context stores what methods of Delegate would need as input.
 type Context struct {
-	Req   *http.Request
-	Data  map[interface{}]interface{}
-	abort bool
+	Req    *http.Request
+	Data   map[interface{}]interface{}
+	abort  bool
+	Hijack bool
 }
 
 // Abort sets abort to true.
@@ -36,7 +38,7 @@ type Delegate interface {
 	Auth(ctx *Context, rw http.ResponseWriter)
 	BeforeRequest(ctx *Context)
 	BeforeResponse(ctx *Context, resp *ResponseWrapper)
-	ParentProxy(ctx *Context, rw http.ResponseWriter) (*url.URL, error)
+	ParentProxy(ctx *Context, i interface{}) (*url.URL, error)
 	Finish(ctx *Context, rw http.ResponseWriter)
 }
 
@@ -68,7 +70,7 @@ func (h *DefaultDelegate) BeforeRequest(ctx *Context) {}
 func (h *DefaultDelegate) BeforeResponse(ctx *Context, resp *ResponseWrapper) {}
 
 // ParentProxy .
-func (h *DefaultDelegate) ParentProxy(ctx *Context, rw http.ResponseWriter) (*url.URL, error) {
+func (h *DefaultDelegate) ParentProxy(ctx *Context, i interface{}) (*url.URL, error) {
 	return http.ProxyFromEnvironment(ctx.Req)
 }
 
