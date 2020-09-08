@@ -18,6 +18,7 @@ type Context struct {
 	Data   map[interface{}]interface{}
 	abort  bool
 	Hijack bool
+	MITM   bool
 }
 
 // Abort sets abort to true.

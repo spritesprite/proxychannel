@@ -95,6 +95,7 @@ func (p *Proxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		Req:    req,
 		Data:   make(map[interface{}]interface{}),
 		Hijack: false,
+		MITM:   false,
 	}
 	defer p.delegate.Finish(ctx, rw)
 	p.delegate.Connect(ctx, rw)
@@ -109,6 +110,7 @@ func (p *Proxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	if ctx.Req.Method == http.MethodConnect {
 		h := ctx.Req.Header.Get("MITM")
 		if h == "Enabled" {
+			ctx.MITM = true
 			p.forwardHTTPS(ctx, rw)
 		} else {
 			p.forwardTunnel(ctx, rw)
