@@ -40,6 +40,7 @@ type Delegate interface {
 	BeforeRequest(ctx *Context)
 	BeforeResponse(ctx *Context, resp *ResponseWrapper)
 	ParentProxy(ctx *Context, i interface{}) (*url.URL, error)
+	DuringResponse(ctx *Context, i interface{})
 	Finish(ctx *Context, rw http.ResponseWriter)
 }
 
@@ -74,6 +75,9 @@ func (h *DefaultDelegate) BeforeResponse(ctx *Context, resp *ResponseWrapper) {}
 func (h *DefaultDelegate) ParentProxy(ctx *Context, i interface{}) (*url.URL, error) {
 	return http.ProxyFromEnvironment(ctx.Req)
 }
+
+// DuringResponse .
+func (h *DefaultDelegate) DuringResponse(ctx *Context, i interface{}) {}
 
 // Finish .
 func (h *DefaultDelegate) Finish(ctx *Context, rw http.ResponseWriter) {}
