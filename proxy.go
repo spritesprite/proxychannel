@@ -10,6 +10,8 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	// "strconv"
+	"context"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -166,8 +168,17 @@ func (p *Proxy) DoRequest(ctx *Context, rw http.ResponseWriter, responseFunc fun
 	if ctx.abort {
 		return
 	}
+
+	type CtxKey int
+	var pkey CtxKey = 0
+	fakeCtx := context.WithValue(newReq.Context(), pkey, parentProxyURL)
+	newReq = newReq.Clone(fakeCtx)
+
 	p.transport.Proxy = func(req *http.Request) (*url.URL, error) {
-		return parentProxyURL, err
+		ctx := req.Context()
+		pURL := ctx.Value(pkey).(*url.URL)
+		req = req.Clone(context.Background())
+		return pURL, err
 	}
 
 	resp, err := p.transport.RoundTrip(newReq)
@@ -196,10 +207,26 @@ func (p *Proxy) forwardHTTP(ctx *Context, rw http.ResponseWriter) {
 			rw.WriteHeader(http.StatusBadGateway)
 			return
 		}
-		defer resp.Body.Close()
+
+		defer closeResponseBody(resp)
+
+		time.AfterFunc(15*time.Second, func() { closeResponseBody(resp) })
 		CopyHeader(rw.Header(), resp.Header)
-		rw.WriteHeader(resp.StatusCode)
-		io.Copy(rw, resp.Body)
+
+		// io.Copy(rw, resp.Body)
+		limitedReader := &io.LimitedReader{
+			R: resp.Body,
+			N: 1<<32 + 1,
+		}
+
+		// handle response body somehow
+		io.Copy(rw, limitedReader)
+
+		if limitedReader.N == 0 {
+			Logger.Errorf("forwardHTTP %s discarded for it's response is larger than 1MB", ctx.Req.URL)
+			// rw.WriteHeader(http.StatusRequestEntityTooLarge)
+			return
+		}
 	})
 }
 
@@ -250,13 +277,130 @@ func (p *Proxy) forwardHTTPS(ctx *Context, rw http.ResponseWriter) {
 			tlsClientConn.Write(badGateway)
 			return
 		}
+		defer closeResponseBody(resp)
+
+		// time.AfterFunc(15*time.Second, func() { closeResponseBody(resp) })
+
+		// body := ioutil.NopCloser(bytes.NewBuffer([]byte{0, 1, 2, 3, 4}))
+		// r := http.MaxBytesReader(nil, body, 5)
+		// buf, err := ioutil.ReadAll(r)
+
+		// // TODO: SET HEADERS
+		// buf := bufio.NewWriter(tlsClientConn)
+		// resp.Write(tlsClientConn)
+
+		// buf := bufio.NewReader(tlsClientConn)
+		// tlsReq, err := http.ReadRequest(buf)
+
+		// limitedReader := &io.LimitedReader{
+		// 	R: resp.Body,
+		// 	N: 1<<20 + 1,
+		// }
+
+		// io.Copy(tlsClientConn, limitedReader)
+
+		// if limitedReader.N == 0 {
+		// 	Logger.Errorf("forwardHTTPS %s discarded for it's response is larger than 1MB", ctx.Req.URL)
+		// 	return
+		// }
+
 		err = resp.Write(tlsClientConn)
 		if err != nil {
 			Logger.Errorf("forwardHTTPS %s write response to client connection failed: %s", ctx.Req.URL.Host, err)
 		}
-		resp.Body.Close()
 	}, tlsClientConn)
 }
+
+// func writeResponse(r *http.Response, w io.Writer) error {
+// 	// Status line
+// 	text := r.Status
+// 	if text == "" {
+// 		text = http.StatusText(r.StatusCode)
+// 	} else {
+// 		// Just to reduce stutter, if user set r.Status to "200 OK" and StatusCode to 200.
+// 		// Not important.
+// 		text = strings.TrimPrefix(text, strconv.Itoa(r.StatusCode)+" ")
+// 	}
+
+// 	if _, err := fmt.Fprintf(w, "HTTP/%d.%d %03d %s\r\n", r.ProtoMajor, r.ProtoMinor, r.StatusCode, text); err != nil {
+// 		return err
+// 	}
+
+// 	// Clone it, so we can modify r1 as needed.
+// 	r1 := new(http.Response)
+// 	*r1 = *r
+// 	if r1.ContentLength == 0 && r1.Body != nil {
+// 		// Is it actually 0 length? Or just unknown?
+// 		var buf [1]byte
+// 		n, err := r1.Body.Read(buf[:])
+// 		if err != nil && err != io.EOF {
+// 			return err
+// 		}
+// 		if n == 0 {
+// 			// Reset it to a known zero reader, in case underlying one
+// 			// is unhappy being read repeatedly.
+// 			r1.Body = http.NoBody
+// 		} else {
+// 			r1.ContentLength = -1
+// 			r1.Body = struct {
+// 				io.Reader
+// 				io.Closer
+// 			}{
+// 				io.MultiReader(bytes.NewReader(buf[:1]), r.Body),
+// 				r.Body,
+// 			}
+// 		}
+// 	}
+// 	// If we're sending a non-chunked HTTP/1.1 response without a
+// 	// content-length, the only way to do that is the old HTTP/1.0
+// 	// way, by noting the EOF with a connection close, so we need
+// 	// to set Close.
+// 	if r1.ContentLength == -1 && !r1.Close && r1.ProtoAtLeast(1, 1) && !chunked(r1.TransferEncoding) && !r1.Uncompressed {
+// 		r1.Close = true
+// 	}
+
+// 	// Process Body,ContentLength,Close,Trailer
+// 	tw, err := http.newTransferWriter(r1)
+// 	if err != nil {
+// 		return err
+// 	}
+// 	err = tw.writeHeader(w, nil)
+// 	if err != nil {
+// 		return err
+// 	}
+
+// 	// Rest of header
+// 	err = r.Header.WriteSubset(w, respExcludeHeader)
+// 	if err != nil {
+// 		return err
+// 	}
+
+// 	// contentLengthAlreadySent may have been already sent for
+// 	// POST/PUT requests, even if zero length. See Issue 8180.
+// 	contentLengthAlreadySent := tw.shouldSendContentLength()
+// 	if r1.ContentLength == 0 && !chunked(r1.TransferEncoding) && !contentLengthAlreadySent && bodyAllowedForStatus(r.StatusCode) {
+// 		if _, err := io.WriteString(w, "Content-Length: 0\r\n"); err != nil {
+// 			return err
+// 		}
+// 	}
+
+// 	// End-of-header
+// 	if _, err := io.WriteString(w, "\r\n"); err != nil {
+// 		return err
+// 	}
+
+// 	// Write body and trailer
+// 	err = tw.writeBody(w)
+// 	if err != nil {
+// 		return err
+// 	}
+
+// 	// Success
+// 	return nil
+// }
+
+// Checks whether chunked is part of the encodings stack
+func chunked(te []string) bool { return len(te) > 0 && te[0] == "chunked" }
 
 func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 	parentProxyURL, err := p.delegate.ParentProxy(ctx, rw)
@@ -387,5 +531,11 @@ func removeConnectionHeaders(h http.Header) {
 func removeMITMHeaders(h http.Header) {
 	if c := h.Get("MITM"); c != "" {
 		h.Del("MITM")
+	}
+}
+
+func closeResponseBody(r *http.Response) {
+	if r.Body != nil {
+		r.Body.Close()
 	}
 }
