@@ -13,6 +13,7 @@ import (
 	// "strconv"
 	"context"
 	"strings"
+	// "sync"
 	"sync/atomic"
 	"time"
 
@@ -94,10 +95,12 @@ func (p *Proxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		atomic.AddInt32(&p.clientConnNum, -1)
 	}()
 	ctx := &Context{
-		Req:    req,
-		Data:   make(map[interface{}]interface{}),
-		Hijack: false,
-		MITM:   false,
+		Req:        req,
+		Data:       make(map[interface{}]interface{}),
+		Hijack:     false,
+		MITM:       false,
+		ReqLength:  0,
+		RespLength: 0,
 	}
 	defer p.delegate.Finish(ctx, rw)
 	p.delegate.Connect(ctx, rw)
@@ -213,7 +216,14 @@ func (p *Proxy) forwardHTTP(ctx *Context, rw http.ResponseWriter) {
 
 		CopyHeader(rw.Header(), resp.Header)
 		rw.WriteHeader(resp.StatusCode)
-		io.Copy(rw, resp.Body)
+
+		written, err := io.Copy(rw, resp.Body)
+		ctx.RespLength = written
+		if err != nil {
+			Logger.Errorf("forwardHTTP %s write client failed: %s", ctx.Req.URL, err)
+			rw.WriteHeader(http.StatusBadGateway)
+			return
+		}
 	})
 }
 
@@ -267,35 +277,12 @@ func (p *Proxy) forwardHTTPS(ctx *Context, rw http.ResponseWriter) {
 		defer closeResponseBody(resp)
 		p.delegate.DuringResponse(ctx, resp)
 
-		// time.AfterFunc(15*time.Second, func() { closeResponseBody(resp) })
-
-		// body := ioutil.NopCloser(bytes.NewBuffer([]byte{0, 1, 2, 3, 4}))
-		// r := http.MaxBytesReader(nil, body, 5)
-		// buf, err := ioutil.ReadAll(r)
-
-		// // TODO: SET HEADERS
-		// buf := bufio.NewWriter(tlsClientConn)
-		// resp.Write(tlsClientConn)
-
-		// buf := bufio.NewReader(tlsClientConn)
-		// tlsReq, err := http.ReadRequest(buf)
-
-		// limitedReader := &io.LimitedReader{
-		// 	R: resp.Body,
-		// 	N: 1<<20 + 1,
-		// }
-
-		// io.Copy(tlsClientConn, limitedReader)
-
-		// if limitedReader.N == 0 {
-		// 	Logger.Errorf("forwardHTTPS %s discarded for it's response is larger than 1MB", ctx.Req.URL)
-		// 	return
-		// }
-
-		err = resp.Write(tlsClientConn)
+		lengthWriter := &WriterWithLength{tlsClientConn, 1, 0}
+		err = resp.Write(lengthWriter)
 		if err != nil {
 			Logger.Errorf("forwardHTTPS %s write response to client connection failed: %s", ctx.Req.URL.Host, err)
 		}
+		ctx.RespLength = int64(lengthWriter.Length())
 	}, tlsClientConn)
 }
 
@@ -340,18 +327,30 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 		targetConn.Write([]byte(tunnelRequestLine))
 	}
 
-	p.transfer(clientConn, targetConn)
+	p.transfer(ctx, clientConn, targetConn)
 }
 
 // transfer does two-way forwarding through connections
-func (p *Proxy) transfer(src net.Conn, dst net.Conn) {
+func (p *Proxy) transfer(ctx *Context, src net.Conn, dst net.Conn) {
 	go func() {
-		io.Copy(src, dst)
+		// Write src
+		written, err := io.Copy(src, dst)
+		ctx.RespLength = written
+		if err != nil {
+			Logger.Errorf("io.Copy failed: %s", err)
+			return
+		}
 		src.Close()
 		dst.Close()
 	}()
 
-	io.Copy(dst, src)
+	// Write dst
+	written, err := io.Copy(dst, src)
+	ctx.ReqLength = written
+	if err != nil {
+		Logger.Errorf("io.Copy failed: %s", err)
+		return
+	}
 	dst.Close()
 	src.Close()
 }

@@ -14,11 +14,13 @@ type ResponseWrapper struct {
 
 // Context stores what methods of Delegate would need as input.
 type Context struct {
-	Req    *http.Request
-	Data   map[interface{}]interface{}
-	abort  bool
-	Hijack bool
-	MITM   bool
+	Req        *http.Request
+	Data       map[interface{}]interface{}
+	abort      bool
+	Hijack     bool
+	MITM       bool
+	ReqLength  int64
+	RespLength int64
 }
 
 // Abort sets abort to true.
