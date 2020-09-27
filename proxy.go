@@ -249,7 +249,7 @@ func (p *Proxy) forwardHTTPS(ctx *Context, rw http.ResponseWriter) {
 	}
 	// tlsConfig.NextProtos = []string{"h2", "http/1.1", "http/1.0"}
 	tlsClientConn := tls.Server(clientConn, tlsConfig)
-	tlsClientConn.SetDeadline(time.Now().Add(defaultClientReadWriteTimeout))
+	// tlsClientConn.SetDeadline(time.Now().Add(defaultClientReadWriteTimeout))
 	defer tlsClientConn.Close()
 	if err := tlsClientConn.Handshake(); err != nil {
 		Logger.Errorf("forwardHTTPS %s handshake failed: %s", ctx.Req.URL.Host, err)
@@ -314,7 +314,7 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 	}
 	defer targetConn.Close()
 	p.delegate.DuringResponse(ctx, targetConn)
-	clientConn.SetDeadline(time.Now().Add(defaultClientReadWriteTimeout))
+	// clientConn.SetDeadline(time.Now().Add(defaultClientReadWriteTimeout))
 	// targetConn.SetDeadline(time.Now().Add(defaultTargetReadWriteTimeout))
 	if parentProxyURL == nil {
 		_, err = clientConn.Write(tunnelEstablishedResponseLine)
