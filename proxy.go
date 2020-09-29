@@ -14,6 +14,8 @@ import (
 	"context"
 	"strings"
 	// "sync"
+	"net/http/httptrace"
+	"net/http/httputil"
 	"sync/atomic"
 	"time"
 
@@ -180,15 +182,35 @@ func (p *Proxy) DoRequest(ctx *Context, rw http.ResponseWriter, responseFunc fun
 	p.transport.Proxy = func(req *http.Request) (*url.URL, error) {
 		ctx := req.Context()
 		pURL := ctx.Value(pkey).(*url.URL)
-		req = req.Clone(context.Background())
+		// req = req.Clone(context.Background())
+		trace := &httptrace.ClientTrace{
+			GotConn: func(connInfo httptrace.GotConnInfo) {
+				Logger.Infof("Got conn: %+v", connInfo)
+			},
+			DNSDone: func(dnsInfo httptrace.DNSDoneInfo) {
+				Logger.Infof("DNS done, info: %+v", dnsInfo)
+			},
+			GotFirstResponseByte: func() {
+				Logger.Infof("GotFirstResponseByte: %+v", time.Now())
+			},
+		}
+		req = req.Clone(httptrace.WithClientTrace(req.Context(), trace))
 		return pURL, err
 	}
 
 	resp, err := p.transport.RoundTrip(newReq)
+
+	dump, err := httputil.DumpRequestOut(newReq, true)
+	if err != nil {
+		Logger.Errorf("DumpRequestOut failed")
+	}
+	ctx.ReqLength = int64(len(dump))
+
 	respWrapper := &ResponseWrapper{
 		Resp: resp,
 		Err:  err,
 	}
+
 	p.delegate.BeforeResponse(ctx, respWrapper)
 	if ctx.abort {
 		return
