@@ -194,7 +194,7 @@ func (p *Proxy) DoRequest(ctx *Context, rw http.ResponseWriter, responseFunc fun
 				Logger.Infof("GotFirstResponseByte: %+v", time.Now())
 			},
 		}
-		req = req.Clone(httptrace.WithClientTrace(req.Context(), trace))
+		req = req.Clone(httptrace.WithClientTrace(context.Background(), trace))
 		return pURL, err
 	}
 
