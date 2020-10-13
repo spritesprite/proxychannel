@@ -200,8 +200,8 @@ func (p *Proxy) DoRequest(ctx *Context, rw http.ResponseWriter, responseFunc fun
 
 	resp, err := p.transport.RoundTrip(newReq)
 
-	dump, err := httputil.DumpRequestOut(newReq, true)
-	if err != nil {
+	dump, dumperr := httputil.DumpRequestOut(newReq, true)
+	if dumperr != nil {
 		Logger.Errorf("DumpRequestOut failed")
 	}
 	ctx.ReqLength = int64(len(dump))
