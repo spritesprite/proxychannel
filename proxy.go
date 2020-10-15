@@ -410,10 +410,12 @@ func transfer(ctx *Context, src net.Conn, dst net.Conn) {
 }
 
 func copyOrWarn(ctx *Context, dst io.Writer, src io.Reader, wg *sync.WaitGroup) {
-	if _, err := io.Copy(dst, src); err != nil {
+	written, err := io.Copy(dst, src)
+	if err != nil {
 		Logger.Errorf("io.Copy failed: %s", err)
 		ctx.SetContextErrorWithType(err, TunnelWriteConnFail)
 	}
+	ctx.ReqLength = written
 	wg.Done()
 }
 
