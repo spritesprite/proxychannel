@@ -123,24 +123,24 @@ func init() {
 	}
 }
 
-// Certificate 证书管理
+// Certificate .
 type Certificate struct {
 	cache Cache
 }
 
+// NewCertificate .
 func NewCertificate(cache Cache) *Certificate {
 	return &Certificate{
 		cache: cache,
 	}
 }
 
-// GenerateTlsConfig 生成TLS配置
-func (c *Certificate) GenerateTlsConfig(host string) (*tls.Config, error) {
+// GenerateTLSConfig .
+func (c *Certificate) GenerateTLSConfig(host string) (*tls.Config, error) {
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		host = h
 	}
 	if c.cache != nil {
-		// 先从缓存中查找证书
 		if cert := c.cache.Get(host); cert != nil {
 			tlsConf := &tls.Config{
 				Certificates: []tls.Certificate{*cert},
@@ -162,14 +162,13 @@ func (c *Certificate) GenerateTlsConfig(host string) (*tls.Config, error) {
 	}
 
 	if c.cache != nil {
-		// 缓存证书
 		c.cache.Set(host, &cert)
 	}
 
 	return tlsConf, nil
 }
 
-// Generate 生成证书
+// GeneratePem .
 func (c *Certificate) GeneratePem(host string) (cert []byte, key []byte, err error) {
 	priv, err := rsa.GenerateKey(crand.Reader, 2048)
 	if err != nil {
@@ -213,7 +212,6 @@ func (c *Certificate) template(host string) *x509.Certificate {
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
 		// KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageDataEncipherment,
 		KeyUsage: x509.KeyUsageDigitalSignature | x509.KeyUsageDataEncipherment | x509.KeyUsageKeyEncipherment,
-		// EmailAddresses:        []string{"qingqianludao@gmail.com"},
 	}
 
 	if ip := net.ParseIP(host); ip != nil {
@@ -225,19 +223,18 @@ func (c *Certificate) template(host string) *x509.Certificate {
 	return cert
 }
 
-// RootCA 根证书
+// RootCAPem .
 func RootCAPem() []byte {
 	return rootCAPem
 }
 
-// 加载根证书
 func loadRootCA() (*x509.Certificate, error) {
 	block, _ := pem.Decode(rootCAPem)
 
 	return x509.ParseCertificate(block.Bytes)
 }
 
-// 加载根证书私钥
+// loadRootKey loads root private key.
 func loadRootKey() (*rsa.PrivateKey, error) {
 	block, _ := pem.Decode(rootKeyPem)
 

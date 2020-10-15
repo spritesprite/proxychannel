@@ -21,10 +21,18 @@ type Context struct {
 	MITM       bool
 	ReqLength  int64
 	RespLength int64
+	ErrType    string
+	Err        error
 }
 
 // Abort sets abort to true.
 func (c *Context) Abort() {
+	c.abort = true
+}
+
+// AbortWithError sets Err and abort to true.
+func (c *Context) AbortWithError(err error) {
+	c.Err = err
 	c.abort = true
 }
 
