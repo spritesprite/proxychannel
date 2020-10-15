@@ -3,19 +3,18 @@ package proxychannel
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"crypto/tls"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"net"
 	"net/http"
-	"net/url"
-	// "strconv"
-	"context"
-	"strings"
-	// "sync"
 	"net/http/httptrace"
 	"net/http/httputil"
+	"net/url"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -103,16 +102,17 @@ func (p *Proxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		MITM:       false,
 		ReqLength:  0,
 		RespLength: 0,
+		Closed:     false,
 	}
 	defer p.delegate.Finish(ctx, rw)
 	p.delegate.Connect(ctx, rw)
 	if ctx.abort {
-		ctx.ErrType = ConnectFail
+		ctx.SetContextErrType(ConnectFail)
 		return
 	}
 	p.delegate.Auth(ctx, rw)
 	if ctx.abort {
-		ctx.ErrType = AuthFail
+		ctx.SetContextErrType(AuthFail)
 		return
 	}
 
@@ -151,7 +151,7 @@ func (p *Proxy) DoRequest(ctx *Context, rw http.ResponseWriter, responseFunc fun
 	}
 	p.delegate.BeforeRequest(ctx)
 	if ctx.abort {
-		ctx.ErrType = BeforeRequestFail
+		ctx.SetContextErrType(BeforeRequestFail)
 		return
 	}
 	newReq := new(http.Request)
@@ -174,7 +174,7 @@ func (p *Proxy) DoRequest(ctx *Context, rw http.ResponseWriter, responseFunc fun
 		parentProxyURL, err = p.delegate.ParentProxy(ctx, rw)
 	}
 	if ctx.abort {
-		ctx.ErrType = ParentProxyFail
+		ctx.SetContextErrType(ParentProxyFail)
 		return
 	}
 
@@ -218,7 +218,7 @@ func (p *Proxy) DoRequest(ctx *Context, rw http.ResponseWriter, responseFunc fun
 
 	p.delegate.BeforeResponse(ctx, respWrapper)
 	if ctx.abort {
-		ctx.ErrType = BeforeResponseFail
+		ctx.SetContextErrType(BeforeResponseFail)
 		return
 	}
 	if err == nil {
@@ -236,12 +236,11 @@ func (p *Proxy) forwardHTTP(ctx *Context, rw http.ResponseWriter) {
 		if err != nil {
 			Logger.Errorf("forwardHTTP %s forward request failed: %s", ctx.Req.URL, err)
 			rw.WriteHeader(http.StatusBadGateway)
-			ctx.Err = err
-			ctx.ErrType = HTTPDoRequestFail
+			ctx.SetContextErrorWithType(err, HTTPDoRequestFail)
 			return
 		}
 
-		defer closeResponseBody(resp)
+		defer CloseResponseBody(ctx, resp)
 		p.delegate.DuringResponse(ctx, resp)
 
 		CopyHeader(rw.Header(), resp.Header)
@@ -252,8 +251,7 @@ func (p *Proxy) forwardHTTP(ctx *Context, rw http.ResponseWriter) {
 		if err != nil {
 			Logger.Errorf("forwardHTTP %s write client failed: %s", ctx.Req.URL, err)
 			rw.WriteHeader(http.StatusBadGateway)
-			ctx.Err = err
-			ctx.ErrType = HTTPWriteClientFail
+			ctx.SetContextErrorWithType(err, HTTPWriteClientFail)
 			return
 		}
 	})
@@ -264,16 +262,14 @@ func (p *Proxy) forwardHTTPS(ctx *Context, rw http.ResponseWriter) {
 	if err != nil {
 		Logger.Errorf("forwardHTTPS %s generate tlsConfig failed: %s", ctx.Req.URL.Host, err)
 		rw.WriteHeader(http.StatusBadGateway)
-		ctx.Err = err
-		ctx.ErrType = HTTPSGenerateTLSConfigFail
+		ctx.SetContextErrorWithType(err, HTTPSGenerateTLSConfigFail)
 		return
 	}
 	clientConn, err := hijacker(rw)
 	if err != nil {
 		Logger.Errorf("forwardHTTPS hijack client connection failed: %s", err)
 		rw.WriteHeader(http.StatusBadGateway)
-		ctx.Err = err
-		ctx.ErrType = HTTPSHijackClientConnFail
+		ctx.SetContextErrorWithType(err, HTTPSHijackClientConnFail)
 		return
 	}
 	ctx.Hijack = true
@@ -281,18 +277,16 @@ func (p *Proxy) forwardHTTPS(ctx *Context, rw http.ResponseWriter) {
 	_, err = clientConn.Write(tunnelEstablishedResponseLine)
 	if err != nil {
 		Logger.Errorf("forwardHTTPS %s write message failed: %s", ctx.Req.URL.Host, err)
-		ctx.Err = err
-		ctx.ErrType = HTTPSWriteEstRespFail
+		ctx.SetContextErrorWithType(err, HTTPSWriteEstRespFail)
 		return
 	}
 	// tlsConfig.NextProtos = []string{"h2", "http/1.1", "http/1.0"}
 	tlsClientConn := tls.Server(clientConn, tlsConfig)
 	// tlsClientConn.SetDeadline(time.Now().Add(defaultClientReadWriteTimeout))
-	defer tlsClientConn.Close()
+	defer CloseNetConn(ctx, tlsClientConn)
 	if err := tlsClientConn.Handshake(); err != nil {
 		Logger.Errorf("forwardHTTPS %s handshake failed: %s", ctx.Req.URL.Host, err)
-		ctx.Err = err
-		ctx.ErrType = HTTPSTLSClientConnHandshakeFail
+		ctx.SetContextErrorWithType(err, HTTPSTLSClientConnHandshakeFail)
 		return
 	}
 	buf := bufio.NewReader(tlsClientConn)
@@ -300,8 +294,7 @@ func (p *Proxy) forwardHTTPS(ctx *Context, rw http.ResponseWriter) {
 	if err != nil {
 		if err != io.EOF {
 			Logger.Errorf("forwardHTTPS %s read client request failed: %s", ctx.Req.URL.Host, err)
-			ctx.Err = err
-			ctx.ErrType = HTTPSReadReqFromBufFail
+			ctx.SetContextErrorWithType(err, HTTPSReadReqFromBufFail)
 		}
 		return
 	}
@@ -314,19 +307,17 @@ func (p *Proxy) forwardHTTPS(ctx *Context, rw http.ResponseWriter) {
 		if err != nil {
 			Logger.Errorf("forwardHTTPS %s forward request failed: %s", ctx.Req.URL.Host, err)
 			tlsClientConn.Write(badGateway)
-			ctx.Err = err
-			ctx.ErrType = HTTPSDoRequestFail
+			ctx.SetContextErrorWithType(err, HTTPSDoRequestFail)
 			return
 		}
-		defer closeResponseBody(resp)
+		defer CloseResponseBody(ctx, resp)
 		p.delegate.DuringResponse(ctx, resp)
 
 		lengthWriter := &WriterWithLength{tlsClientConn, 1, 0}
 		err = resp.Write(lengthWriter)
 		if err != nil {
 			Logger.Errorf("forwardHTTPS %s write response to client connection failed: %s", ctx.Req.URL.Host, err)
-			ctx.Err = err
-			ctx.ErrType = HTTPSWriteRespFail
+			ctx.SetContextErrorWithType(err, HTTPSWriteRespFail)
 		}
 		ctx.RespLength = int64(lengthWriter.Length())
 	}, tlsClientConn)
@@ -335,15 +326,14 @@ func (p *Proxy) forwardHTTPS(ctx *Context, rw http.ResponseWriter) {
 func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 	parentProxyURL, err := p.delegate.ParentProxy(ctx, rw)
 	if ctx.abort {
-		ctx.ErrType = ParentProxyFail
+		ctx.SetContextErrType(ParentProxyFail)
 		return
 	}
 	clientConn, err := hijacker(rw)
 	if err != nil {
 		Logger.Errorf("forwardTunnel hijack client connection failed: %s", err)
 		rw.WriteHeader(http.StatusBadGateway)
-		ctx.Err = err
-		ctx.ErrType = TunnelHijackClientConnFail
+		ctx.SetContextErrorWithType(err, TunnelHijackClientConnFail)
 		return
 	}
 	ctx.Hijack = true
@@ -359,11 +349,10 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 		Logger.Errorf("forwardTunnel %s dial remote server failed: %s", ctx.Req.URL.Host, err)
 		clientConn.Write(badGateway)
 		// rw.WriteHeader(http.StatusBadGateway)
-		ctx.Err = err
-		ctx.ErrType = TunnelDialRemoteServerFail
+		ctx.SetContextErrorWithType(err, TunnelDialRemoteServerFail)
 		return
 	}
-	defer targetConn.Close()
+	defer CloseNetConn(ctx, targetConn)
 	p.delegate.DuringResponse(ctx, targetConn)
 	// clientConn.SetDeadline(time.Now().Add(defaultClientReadWriteTimeout))
 	// targetConn.SetDeadline(time.Now().Add(defaultTargetReadWriteTimeout))
@@ -371,8 +360,7 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 		_, err = clientConn.Write(tunnelEstablishedResponseLine)
 		if err != nil {
 			Logger.Errorf("forwardTunnel %s write message failed: %s", ctx.Req.URL.Host, err)
-			ctx.Err = err
-			ctx.ErrType = TunnelWriteEstRespFail
+			ctx.SetContextErrorWithType(err, TunnelWriteEstRespFail)
 			return
 		}
 	} else {
@@ -380,36 +368,53 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 		targetConn.Write([]byte(tunnelRequestLine))
 	}
 
-	p.transfer(ctx, clientConn, targetConn)
+	transfer(ctx, clientConn, targetConn)
 }
 
-// transfer does two-way forwarding through connections
-func (p *Proxy) transfer(ctx *Context, src net.Conn, dst net.Conn) {
-	go func() {
-		// Write src
-		written, err := io.Copy(src, dst)
-		ctx.RespLength = written
-		if err != nil {
-			Logger.Errorf("io.Copy failed: %s", err)
-			ctx.Err = err
-			ctx.ErrType = TunnelWriteClientConnFail
-			return
-		}
-		src.Close()
-		dst.Close()
-	}()
+// // transfer does two-way forwarding through connections
+// func (p *Proxy) transfer(ctx *Context, src net.Conn, dst net.Conn) {
+// 	go func() {
+// 		// Write src
+// 		written, err := io.Copy(src, dst)
+// 		ctx.RespLength = written
+// 		if err != nil {
+// 			Logger.Errorf("1 io.Copy failed: %s", err)
+// 			ctx.SetContextErrorWithType(err, TunnelWriteClientConnFail)
+// 			return
+// 		}
+// 		src.Close()
+// 		dst.Close()
+// 	}()
 
-	// Write dst
-	written, err := io.Copy(dst, src)
-	ctx.ReqLength = written
-	if err != nil {
-		Logger.Errorf("io.Copy failed: %s", err)
-		ctx.Err = err
-		ctx.ErrType = TunnelWriteRemoteConnFail
-		return
-	}
-	dst.Close()
+// 	// Write dst
+// 	written, err := io.Copy(dst, src)
+// 	ctx.ReqLength = written
+// 	if err != nil {
+// 		Logger.Errorf("2 io.Copy failed: %s", err)
+// 		ctx.SetContextErrorWithType(err, TunnelWriteRemoteConnFail)
+// 		return
+// 	}
+// 	dst.Close()
+// 	src.Close()
+// }
+
+// transfer does two-way forwarding through connections
+func transfer(ctx *Context, src net.Conn, dst net.Conn) {
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go copyOrWarn(ctx, src, dst, &wg)
+	go copyOrWarn(ctx, dst, src, &wg)
+	wg.Wait()
 	src.Close()
+	dst.Close()
+}
+
+func copyOrWarn(ctx *Context, dst io.Writer, src io.Reader, wg *sync.WaitGroup) {
+	if _, err := io.Copy(dst, src); err != nil {
+		Logger.Errorf("io.Copy failed: %s", err)
+		ctx.SetContextErrorWithType(err, TunnelWriteConnFail)
+	}
+	wg.Done()
 }
 
 // hijacker gets the underlying connection of an http.ResponseWriter
@@ -424,6 +429,34 @@ func hijacker(rw http.ResponseWriter) (net.Conn, error) {
 	}
 
 	return conn, nil
+}
+
+var hopHeaders = []string{
+	"Connection",
+	"Proxy-Connection",
+	"Keep-Alive",
+	"Proxy-Authenticate",
+	"Proxy-Authorization",
+	"Te",
+	"Trailer",
+	"Transfer-Encoding",
+	"Upgrade",
+}
+
+func removeConnectionHeaders(h http.Header) {
+	if c := h.Get("Connection"); c != "" {
+		for _, f := range strings.Split(c, ",") {
+			if f = strings.TrimSpace(f); f != "" {
+				h.Del(f)
+			}
+		}
+	}
+}
+
+func removeMITMHeaders(h http.Header) {
+	if c := h.Get("MITM"); c != "" {
+		h.Del("MITM")
+	}
 }
 
 // CopyHeader shallow copy.
@@ -460,36 +493,24 @@ func CloneBody(b io.ReadCloser) (r io.ReadCloser, body []byte, err error) {
 	return r, body, nil
 }
 
-var hopHeaders = []string{
-	"Connection",
-	"Proxy-Connection",
-	"Keep-Alive",
-	"Proxy-Authenticate",
-	"Proxy-Authorization",
-	"Te",
-	"Trailer",
-	"Transfer-Encoding",
-	"Upgrade",
+// CloseResponseBody .
+func CloseResponseBody(ctx *Context, r *http.Response) {
+	ctx.Lock.Lock()
+	defer ctx.Lock.Unlock()
+	if ctx.Closed {
+		return
+	}
+	r.Body.Close()
+	ctx.Closed = true
 }
 
-func removeConnectionHeaders(h http.Header) {
-	if c := h.Get("Connection"); c != "" {
-		for _, f := range strings.Split(c, ",") {
-			if f = strings.TrimSpace(f); f != "" {
-				h.Del(f)
-			}
-		}
+// CloseNetConn .
+func CloseNetConn(ctx *Context, conn net.Conn) {
+	ctx.Lock.Lock()
+	defer ctx.Lock.Unlock()
+	if ctx.Closed {
+		return
 	}
-}
-
-func removeMITMHeaders(h http.Header) {
-	if c := h.Get("MITM"); c != "" {
-		h.Del("MITM")
-	}
-}
-
-func closeResponseBody(r *http.Response) {
-	if r.Body != nil {
-		r.Body.Close()
-	}
+	conn.Close()
+	ctx.Closed = true
 }

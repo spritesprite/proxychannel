@@ -4,6 +4,7 @@ import (
 	// "crypto/tls"
 	"net/http"
 	"net/url"
+	"sync"
 )
 
 // ResponseWrapper is simply a wrapper for http.Response and error.
@@ -23,6 +24,43 @@ type Context struct {
 	RespLength int64
 	ErrType    string
 	Err        error
+	Closed     bool
+	Lock       sync.RWMutex
+}
+
+// GetContextError .
+func (c *Context) GetContextError() (errType string, err error) {
+	c.Lock.RLock()
+	defer c.Lock.RUnlock()
+	return c.ErrType, c.Err
+}
+
+// SetContextErrorWithType .
+func (c *Context) SetContextErrorWithType(err error, errType string) {
+	c.Lock.Lock()
+	defer c.Lock.Unlock()
+	if c.ErrType == HTTPRedialCancelTimeout || c.ErrType == HTTPSRedialCancelTimeout || c.ErrType == TunnelRedialCancelTimeout {
+		return
+	}
+	c.ErrType = errType
+	c.Err = err
+}
+
+// SetContextErrType .
+func (c *Context) SetContextErrType(errType string) {
+	c.Lock.Lock()
+	defer c.Lock.Unlock()
+	if c.ErrType == HTTPRedialCancelTimeout || c.ErrType == HTTPSRedialCancelTimeout || c.ErrType == TunnelRedialCancelTimeout {
+		return
+	}
+	c.ErrType = errType
+}
+
+// SetContextError .
+func (c *Context) SetContextError(err error) {
+	c.Lock.Lock()
+	defer c.Lock.Unlock()
+	c.Err = err
 }
 
 // Abort sets abort to true.
@@ -32,7 +70,9 @@ func (c *Context) Abort() {
 
 // AbortWithError sets Err and abort to true.
 func (c *Context) AbortWithError(err error) {
+	c.Lock.Lock()
 	c.Err = err
+	c.Lock.Unlock()
 	c.abort = true
 }
 

@@ -2,13 +2,13 @@ package proxychannel
 
 // EventType .
 const (
-	ConnectDone        = "CONNECT_DONE"
-	AuthDone           = "AUTH_DONE"
-	BeforeRequestDone  = "BEFORE_REQUEST_DONE"
-	BeforeResponseDone = "BEFORE_RESPONSE_DONE"
-	ParentProxyDone    = "PARENT_PROXY_DONE"
-	DuringResponseDone = "DURING_RESPONSE_DONE"
-	FinishDone         = "FINISH_DONE"
+	// ConnectDone        = "CONNECT_DONE"
+	// AuthDone           = "AUTH_DONE"
+	// BeforeRequestDone  = "BEFORE_REQUEST_DONE"
+	// BeforeResponseDone = "BEFORE_RESPONSE_DONE"
+	// ParentProxyDone    = "PARENT_PROXY_DONE"
+	// DuringResponseDone = "DURING_RESPONSE_DONE"
+	RequestFinish = "REQUEST_FINISH"
 )
 
 // FailEventType .
@@ -32,6 +32,9 @@ const (
 	TunnelHijackClientConnFail      = "TUNNEL_HIJACK_CLIENT_CONN_FAIL"
 	TunnelDialRemoteServerFail      = "TUNNEL_DIAL_REMOTE_SERVER_FAIL"
 	TunnelWriteEstRespFail          = "TUNNEL_WRITE_EST_RESP_FAIL"
-	TunnelWriteClientConnFail       = "TUNNEL_WRITE_CLIENT_CONN_FAIL"
-	TunnelWriteRemoteConnFail       = "TUNNEL_WRITE_REMOTE_CONN_FAIL"
+	TunnelWriteConnFail             = "TUNNEL_WRITE_CONN_FAIL"
+
+	HTTPRedialCancelTimeout   = "HTTP_REDIAL_CANCEL_TIMEOUT"
+	HTTPSRedialCancelTimeout  = "HTTPS_REDIAL_CANCEL_TIMEOUT"
+	TunnelRedialCancelTimeout = "TUNNEL_REDIAL_CANCEL_TIMEOUT"
 )
