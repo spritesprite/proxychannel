@@ -88,7 +88,7 @@ type Delegate interface {
 	Connect(ctx *Context, rw http.ResponseWriter)
 	Auth(ctx *Context, rw http.ResponseWriter)
 	BeforeRequest(ctx *Context)
-	BeforeResponse(ctx *Context, resp *ResponseWrapper)
+	BeforeResponse(ctx *Context, i interface{})
 	ParentProxy(ctx *Context, i interface{}) (*url.URL, error)
 	DuringResponse(ctx *Context, i interface{})
 	Finish(ctx *Context, rw http.ResponseWriter)
@@ -119,7 +119,7 @@ func (h *DefaultDelegate) Auth(ctx *Context, rw http.ResponseWriter) {}
 func (h *DefaultDelegate) BeforeRequest(ctx *Context) {}
 
 // BeforeResponse .
-func (h *DefaultDelegate) BeforeResponse(ctx *Context, resp *ResponseWrapper) {}
+func (h *DefaultDelegate) BeforeResponse(ctx *Context, i interface{}) {}
 
 // ParentProxy .
 func (h *DefaultDelegate) ParentProxy(ctx *Context, i interface{}) (*url.URL, error) {

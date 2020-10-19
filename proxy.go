@@ -230,7 +230,67 @@ func (p *Proxy) DoRequest(ctx *Context, rw http.ResponseWriter, responseFunc fun
 	responseFunc(resp, err)
 }
 
+func headerContains(header http.Header, name string, value string) bool {
+	for _, v := range header[name] {
+		for _, s := range strings.Split(v, ",") {
+			if strings.EqualFold(value, strings.TrimSpace(s)) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func isWebSocketRequest(r *http.Request) bool {
+	return headerContains(r.Header, "Connection", "upgrade") &&
+		headerContains(r.Header, "Upgrade", "websocket")
+}
+
+// func (p *Proxy) serveHTTPWebsocket(ctx *Context, rw http.ResponseWriter, req *http.Request) {
+// 	targetURL := url.URL{Scheme: "ws", Host: req.URL.Host, Path: req.URL.Path}
+
+// 	targetConn, err := p.connectDial("tcp", targetURL.Host)
+// 	if err != nil {
+// 		Logger.Errorf("forwardHTTP %s forward request failed: %s", ctx.Req.URL, err)
+// 		rw.WriteHeader(http.StatusBadGateway)
+// 		ctx.SetContextErrorWithType(err, HTTPDoRequestFail)
+// 		return
+// 	}
+// 	defer targetConn.Close()
+
+// 	// Connect to Client
+// 	hj, ok := w.(http.Hijacker)
+// 	if !ok {
+// 		panic("httpserver does not support hijacking")
+// 	}
+// 	clientConn, _, err := hj.Hijack()
+// 	if err != nil {
+// 		ctx.Warnf("Hijack error: %v", err)
+// 		return
+// 	}
+
+// 	// Perform handshake
+// 	if err := p.websocketHandshake(ctx, req, targetConn, clientConn); err != nil {
+// 		ctx.Warnf("Websocket handshake error: %v", err)
+// 		return
+// 	}
+
+// 	// Proxy ws connection
+// 	p.proxyWebsocket(ctx, targetConn, clientConn)
+// }
+
+// func (p *Proxy) serveHTTPSWebsocket(ctx *Context, rw http.ResponseWriter, req *http.Request) {
+// }
+// func (p *Proxy) serveTunnelWebsocket(ctx *Context, rw http.ResponseWriter, req *http.Request) {
+// }
+
 func (p *Proxy) forwardHTTP(ctx *Context, rw http.ResponseWriter) {
+	// if isWebSocketRequest(ctx.Req) {
+	// 	r := ctx.Req
+	// 	Logger.Infof("Request needs websocket upgrade %v %v %v %v", r.URL.Path, r.Host, r.Method, r.URL.String())
+	// 	p.serveHTTPWebsocket(ctx, rw, r)
+	// 	return
+	// }
 	ctx.Req.URL.Scheme = "http"
 	p.DoRequest(ctx, rw, func(resp *http.Response, err error) {
 		if err != nil {
@@ -258,6 +318,12 @@ func (p *Proxy) forwardHTTP(ctx *Context, rw http.ResponseWriter) {
 }
 
 func (p *Proxy) forwardHTTPS(ctx *Context, rw http.ResponseWriter) {
+	// if isWebSocketRequest(ctx.Req) {
+	// 	r := ctx.Req
+	// 	Logger.Infof("Request needs websocket upgrade %v %v %v %v", r.URL.Path, r.Host, r.Method, r.URL.String())
+	// 	p.serveHTTPSWebsocket(ctx, rw, r)
+	// 	return
+	// }
 	tlsConfig, err := p.cert.GenerateTLSConfig(ctx.Req.URL.Host)
 	if err != nil {
 		Logger.Errorf("forwardHTTPS %s generate tlsConfig failed: %s", ctx.Req.URL.Host, err)
@@ -324,6 +390,12 @@ func (p *Proxy) forwardHTTPS(ctx *Context, rw http.ResponseWriter) {
 }
 
 func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
+	// if isWebSocketRequest(ctx.Req) {
+	// 	r := ctx.Req
+	// 	Logger.Infof("Request needs websocket upgrade %v %v %v %v", r.URL.Path, r.Host, r.Method, r.URL.String())
+	// 	p.serveTunnelWebsocket(ctx, rw, r)
+	// 	return
+	// }
 	parentProxyURL, err := p.delegate.ParentProxy(ctx, rw)
 	if ctx.abort {
 		ctx.SetContextErrType(ParentProxyFail)
@@ -345,6 +417,11 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 	}
 
 	targetConn, err := net.DialTimeout("tcp", targetAddr, defaultTargetConnectTimeout)
+	p.delegate.BeforeResponse(ctx, err)
+	if ctx.abort {
+		ctx.SetContextErrType(BeforeResponseFail)
+		return
+	}
 	if err != nil {
 		Logger.Errorf("forwardTunnel %s dial remote server failed: %s", ctx.Req.URL.Host, err)
 		clientConn.Write(badGateway)
@@ -370,33 +447,6 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 
 	transfer(ctx, clientConn, targetConn)
 }
-
-// // transfer does two-way forwarding through connections
-// func (p *Proxy) transfer(ctx *Context, src net.Conn, dst net.Conn) {
-// 	go func() {
-// 		// Write src
-// 		written, err := io.Copy(src, dst)
-// 		ctx.RespLength = written
-// 		if err != nil {
-// 			Logger.Errorf("1 io.Copy failed: %s", err)
-// 			ctx.SetContextErrorWithType(err, TunnelWriteClientConnFail)
-// 			return
-// 		}
-// 		src.Close()
-// 		dst.Close()
-// 	}()
-
-// 	// Write dst
-// 	written, err := io.Copy(dst, src)
-// 	ctx.ReqLength = written
-// 	if err != nil {
-// 		Logger.Errorf("2 io.Copy failed: %s", err)
-// 		ctx.SetContextErrorWithType(err, TunnelWriteRemoteConnFail)
-// 		return
-// 	}
-// 	dst.Close()
-// 	src.Close()
-// }
 
 // transfer does two-way forwarding through connections
 func transfer(ctx *Context, src net.Conn, dst net.Conn) {
