@@ -417,7 +417,11 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 	}
 
 	targetConn, err := net.DialTimeout("tcp", targetAddr, defaultTargetConnectTimeout)
-	p.delegate.BeforeResponse(ctx, err)
+	connWrapper := &ConnWrapper{
+		Conn: targetConn,
+		Err:  err,
+	}
+	p.delegate.BeforeResponse(ctx, connWrapper)
 	if ctx.abort {
 		ctx.SetContextErrType(BeforeResponseFail)
 		return

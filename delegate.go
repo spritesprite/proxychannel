@@ -2,6 +2,7 @@ package proxychannel
 
 import (
 	// "crypto/tls"
+	"net"
 	"net/http"
 	"net/url"
 	"sync"
@@ -10,6 +11,12 @@ import (
 // ResponseWrapper is simply a wrapper for http.Response and error.
 type ResponseWrapper struct {
 	Resp *http.Response
+	Err  error
+}
+
+// ConnWrapper .
+type ConnWrapper struct {
+	Conn net.Conn
 	Err  error
 }
 
