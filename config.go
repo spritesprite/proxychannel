@@ -41,8 +41,8 @@ var DefaultHandlerConfig *HandlerConfig = &HandlerConfig{
 			InsecureSkipVerify: true,
 		},
 		DialContext: (&net.Dialer{
-			Timeout:   30 * time.Second,
-			KeepAlive: 30 * time.Second,
+			// Timeout:   30 * time.Second,
+			// KeepAlive: 30 * time.Second,
 			DualStack: true,
 		}).DialContext,
 		MaxIdleConns:          100,
@@ -54,9 +54,9 @@ var DefaultHandlerConfig *HandlerConfig = &HandlerConfig{
 
 // DefaultServerConfig .
 var DefaultServerConfig *ServerConfig = &ServerConfig{
-	ProxyAddr:    ":8008",
-	ReadTimeout:  60 * time.Second,
-	WriteTimeout: 60 * time.Second,
+	ProxyAddr: ":8008",
+	// ReadTimeout: 60 * time.Second,
+	// WriteTimeout: 60 * time.Second,
 }
 
 // HandlerConfig .
