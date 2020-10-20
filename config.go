@@ -54,9 +54,9 @@ var DefaultHandlerConfig *HandlerConfig = &HandlerConfig{
 
 // DefaultServerConfig .
 var DefaultServerConfig *ServerConfig = &ServerConfig{
-	ProxyAddr: ":8008",
-	// ReadTimeout: 60 * time.Second,
-	// WriteTimeout: 60 * time.Second,
+	ProxyAddr:    ":8008",
+	ReadTimeout:  60 * time.Second,
+	WriteTimeout: 60 * time.Second,
 }
 
 // HandlerConfig .

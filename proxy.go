@@ -456,20 +456,20 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 func transfer(ctx *Context, src net.Conn, dst net.Conn) {
 	var wg sync.WaitGroup
 	wg.Add(2)
-	go copyOrWarn(ctx, src, dst, &wg)
-	go copyOrWarn(ctx, dst, src, &wg)
+	go copyOrWarn(ctx, src, dst, &wg, &ctx.RespLength)
+	go copyOrWarn(ctx, dst, src, &wg, &ctx.ReqLength)
 	wg.Wait()
 	src.Close()
 	dst.Close()
 }
 
-func copyOrWarn(ctx *Context, dst io.Writer, src io.Reader, wg *sync.WaitGroup) {
+func copyOrWarn(ctx *Context, dst io.Writer, src io.Reader, wg *sync.WaitGroup, len *int64) {
 	written, err := io.Copy(dst, src)
 	if err != nil {
 		Logger.Errorf("io.Copy failed: %s", err)
 		ctx.SetContextErrorWithType(err, TunnelWriteConnFail)
 	}
-	ctx.ReqLength = written
+	*len = written
 	wg.Done()
 }
 
