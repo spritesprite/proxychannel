@@ -116,16 +116,25 @@ func (p *Proxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	Logger.Debugf("ServeHTTP got a request, method:%s scheme:%s host:%s", ctx.Req.Method, ctx.Req.URL.Scheme, ctx.Req.Host)
 	if ctx.Req.Method == http.MethodConnect {
 		h := ctx.Req.Header.Get("MITM")
 		if h == "Enabled" {
 			ctx.MITM = true
-			p.forwardHTTPS(ctx, rw)
+			if isWebSocketRequest(ctx.Req) {
+				p.forwardHTTPSWebsocket(ctx, rw)
+			} else {
+				p.forwardHTTPS(ctx, rw)
+			}
 		} else {
 			p.forwardTunnel(ctx, rw)
 		}
 	} else {
-		p.forwardHTTP(ctx, rw)
+		if isWebSocketRequest(ctx.Req) {
+			p.forwardHTTPWebsocket(ctx, rw)
+		} else {
+			p.forwardHTTP(ctx, rw)
+		}
 	}
 }
 
@@ -146,6 +155,7 @@ func (p *Proxy) DoRequest(ctx *Context, rw http.ResponseWriter, responseFunc fun
 		c := conn[0]
 		clientConn, _ = c.(*tls.Conn)
 	}
+
 	if ctx.Data == nil {
 		ctx.Data = make(map[interface{}]interface{})
 	}
@@ -183,6 +193,13 @@ func (p *Proxy) DoRequest(ctx *Context, rw http.ResponseWriter, responseFunc fun
 	fakeCtx := context.WithValue(newReq.Context(), pkey, parentProxyURL)
 	newReq = newReq.Clone(fakeCtx)
 
+	dump, dumperr := httputil.DumpRequestOut(newReq, true)
+	if dumperr != nil {
+		Logger.Errorf("DumpRequestOut failed %s", dumperr)
+	} else {
+		ctx.ReqLength = int64(len(dump))
+	}
+
 	p.transport.Proxy = func(req *http.Request) (*url.URL, error) {
 		ctx := req.Context()
 		pURL := ctx.Value(pkey).(*url.URL)
@@ -203,13 +220,6 @@ func (p *Proxy) DoRequest(ctx *Context, rw http.ResponseWriter, responseFunc fun
 	}
 
 	resp, err := p.transport.RoundTrip(newReq)
-
-	dump, dumperr := httputil.DumpRequestOut(newReq, true)
-	if dumperr != nil {
-		Logger.Errorf("DumpRequestOut failed")
-	} else {
-		ctx.ReqLength = int64(len(dump))
-	}
 
 	respWrapper := &ResponseWrapper{
 		Resp: resp,
@@ -246,51 +256,189 @@ func isWebSocketRequest(r *http.Request) bool {
 		headerContains(r.Header, "Upgrade", "websocket")
 }
 
-// func (p *Proxy) serveHTTPWebsocket(ctx *Context, rw http.ResponseWriter, req *http.Request) {
-// 	targetURL := url.URL{Scheme: "ws", Host: req.URL.Host, Path: req.URL.Path}
+func (p *Proxy) websocketHandshake(ctx *Context, req *http.Request, targetConn io.ReadWriter, clientConn io.ReadWriter) error {
+	// write handshake request to target
+	err := req.Write(targetConn)
+	if err != nil {
+		Logger.Errorf("websocketHandshake %s write targetConn failed: %s", req.URL.Host, err)
+		return fmt.Errorf("websocketHandshake %s write targetConn failed: %s", req.URL.Host, err)
+	}
 
-// 	targetConn, err := p.connectDial("tcp", targetURL.Host)
-// 	if err != nil {
-// 		Logger.Errorf("forwardHTTP %s forward request failed: %s", ctx.Req.URL, err)
-// 		rw.WriteHeader(http.StatusBadGateway)
-// 		ctx.SetContextErrorWithType(err, HTTPDoRequestFail)
-// 		return
-// 	}
-// 	defer targetConn.Close()
+	targetTLSReader := bufio.NewReader(targetConn)
 
-// 	// Connect to Client
-// 	hj, ok := w.(http.Hijacker)
-// 	if !ok {
-// 		panic("httpserver does not support hijacking")
-// 	}
-// 	clientConn, _, err := hj.Hijack()
-// 	if err != nil {
-// 		ctx.Warnf("Hijack error: %v", err)
-// 		return
-// 	}
+	// Read handshake response from target
+	resp, err := http.ReadResponse(targetTLSReader, req)
+	if err != nil {
+		Logger.Errorf("websocketHandshake %s read handhsake response failed: %s", req.URL.Host, err)
+		return fmt.Errorf("websocketHandshake %s write targetConn failed: %s", req.URL.Host, err)
+	}
 
-// 	// Perform handshake
-// 	if err := p.websocketHandshake(ctx, req, targetConn, clientConn); err != nil {
-// 		ctx.Warnf("Websocket handshake error: %v", err)
-// 		return
-// 	}
+	// TODO: Do sth. to resp
 
-// 	// Proxy ws connection
-// 	p.proxyWebsocket(ctx, targetConn, clientConn)
-// }
+	// Proxy handshake back to client
+	err = resp.Write(clientConn)
+	if err != nil {
+		Logger.Errorf("websocketHandshake %s write handhsake response failed: %s", req.URL.Host, err)
+		return fmt.Errorf("websocketHandshake %s write handhsake response failed: %s", req.URL.Host, err)
+	}
+	return nil
+}
 
-// func (p *Proxy) serveHTTPSWebsocket(ctx *Context, rw http.ResponseWriter, req *http.Request) {
-// }
-// func (p *Proxy) serveTunnelWebsocket(ctx *Context, rw http.ResponseWriter, req *http.Request) {
-// }
+func (p *Proxy) serveWebsocket(ctx *Context, rw http.ResponseWriter, req *http.Request) {
+	parentProxyURL, err := p.delegate.ParentProxy(ctx, rw)
+	if ctx.abort {
+		ctx.SetContextErrType(ParentProxyFail)
+		return
+	}
+
+	ctx.Req.URL.Scheme = "ws"
+	// targetURL := url.URL{Scheme: "ws", Host: req.URL.Host, Path: req.URL.Path}
+
+	targetAddr := ctx.Req.URL.Host
+	if parentProxyURL != nil {
+		targetAddr = parentProxyURL.Host
+	}
+
+	targetConn, err := net.DialTimeout("tcp", targetAddr, defaultTargetConnectTimeout)
+	if err != nil {
+		Logger.Errorf("serveWebsocket %s dial targetURL failed: %s", ctx.Req.URL, err)
+		rw.WriteHeader(http.StatusBadGateway)
+		ctx.SetContextErrorWithType(err, HTTPWebsocketDailFail)
+		return
+	}
+	defer CloseNetConn(ctx, targetConn)
+
+	// Connect to Client
+	hj, ok := rw.(http.Hijacker)
+	if !ok {
+		panic("httpserver does not support hijacking")
+	}
+	clientConn, _, err := hj.Hijack()
+	if err != nil {
+		Logger.Errorf("serveWebsocket hijack client connection failed: %s", err)
+		rw.WriteHeader(http.StatusBadGateway)
+		ctx.SetContextErrorWithType(err, HTTPWebsocketHijackFail)
+		return
+	}
+	ctx.Hijack = true
+	clientConn.Close()
+
+	// Perform handshake
+	if err := p.websocketHandshake(ctx, req, targetConn, clientConn); err != nil {
+		Logger.Errorf("serveWebsocket %s handshake failed: %s", ctx.Req.URL.Host, err)
+		ctx.SetContextErrorWithType(err, HTTPWebsocketHandshakeFail)
+		return
+	}
+
+	// Proxy ws connection
+	transfer(ctx, clientConn, targetConn)
+}
+
+// TODO: should remove some headers before sending it to remote server or proxy
+func (p *Proxy) serveWebsocketTLS(ctx *Context, rw http.ResponseWriter, req *http.Request) {
+	parentProxyURL, err := p.delegate.ParentProxy(ctx, rw)
+	if ctx.abort {
+		ctx.SetContextErrType(ParentProxyFail)
+		return
+	}
+
+	tlsConfig, err := p.cert.GenerateTLSConfig(ctx.Req.URL.Host)
+	if err != nil {
+		Logger.Errorf("serveWebsocketTLS %s generate tlsConfig failed: %s", ctx.Req.URL.Host, err)
+		rw.WriteHeader(http.StatusBadGateway)
+		ctx.SetContextErrorWithType(err, HTTPSWebsocketGenerateTLSConfigFail)
+		return
+	}
+
+	clientConn, err := hijacker(rw)
+	if err != nil {
+		Logger.Errorf("serveWebsocketTLS hijack client connection failed: %s", err)
+		rw.WriteHeader(http.StatusBadGateway)
+		ctx.SetContextErrorWithType(err, HTTPSWebsocketHijackFail)
+		return
+	}
+	ctx.Hijack = true
+	defer clientConn.Close()
+
+	_, err = clientConn.Write(tunnelEstablishedResponseLine)
+	if err != nil {
+		Logger.Errorf("serveWebsocketTLS %s write message failed: %s", ctx.Req.URL.Host, err)
+		ctx.SetContextErrorWithType(err, HTTPSWebsocketWriteEstRespFail)
+		return
+	}
+
+	tlsClientConn := tls.Server(clientConn, tlsConfig)
+	defer CloseNetConn(ctx, tlsClientConn)
+
+	// Normal https handshake
+	if err := tlsClientConn.Handshake(); err != nil {
+		Logger.Errorf("serveWebsocketTLS %s handshake failed: %s", ctx.Req.URL.Host, err)
+		ctx.SetContextErrorWithType(err, HTTPSWebsocketTLSClientConnHandshakeFail)
+		return
+	}
+
+	// After https handshake, read the client's request
+	buf := bufio.NewReader(tlsClientConn)
+	wsReq, err := http.ReadRequest(buf)
+	if err != nil {
+		if err != io.EOF {
+			Logger.Errorf("serveWebsocketTLS %s read client request failed: %s", ctx.Req.URL.Host, err)
+			ctx.SetContextErrorWithType(err, HTTPSWebsocketReadReqFromBufFail)
+		}
+		return
+	}
+
+	// Dail the remote server, could be another proxy
+	dialAddr := wsReq.URL.Host
+	if parentProxyURL != nil {
+		dialAddr = parentProxyURL.Host
+	}
+
+	dialer := &net.Dialer{
+		Timeout: defaultTargetConnectTimeout,
+	}
+	tlsConfig.InsecureSkipVerify = true
+	targetConn, err := tls.DialWithDialer(dialer, "tcp", dialAddr, tlsConfig)
+	// targetConn, err := tls.Dial("tcp", dialAddr, tlsConfig)
+	if err != nil {
+		Logger.Errorf("serveWebsocket %s dial targetURL failed: %s", ctx.Req.URL, err)
+		rw.WriteHeader(http.StatusBadGateway)
+		ctx.SetContextErrorWithType(err, HTTPSWebsocketDailFail)
+		return
+	}
+	defer CloseNetConn(ctx, targetConn)
+
+	// wsReq.RemoteAddr = ctx.Req.RemoteAddr
+	wsReq.URL.Scheme = "wss"
+	wsReq.URL.Host = wsReq.Host
+
+	ctx.Req = wsReq
+
+	// Perform handshake
+	if err := p.websocketHandshake(ctx, wsReq, targetConn, clientConn); err != nil {
+		Logger.Errorf("serveWebsocket %s handshake failed: %s", ctx.Req.URL.Host, err)
+		ctx.SetContextErrorWithType(err, HTTPSWebsocketHandshakeFail)
+		return
+	}
+
+	// Proxy ws connection
+	transfer(ctx, clientConn, targetConn)
+}
+
+func (p *Proxy) forwardHTTPWebsocket(ctx *Context, rw http.ResponseWriter) {
+	r := ctx.Req
+	Logger.Infof("Request needs websocket upgrade %v %v %v %v", r.URL.Path, r.Host, r.Method, r.URL.String())
+	p.serveWebsocket(ctx, rw, r)
+}
+
+func (p *Proxy) forwardHTTPSWebsocket(ctx *Context, rw http.ResponseWriter) {
+	r := ctx.Req
+	Logger.Infof("Request needs websocket upgrade %v %v %v %v", r.URL.Path, r.Host, r.Method, r.URL.String())
+	p.serveWebsocketTLS(ctx, rw, r)
+}
 
 func (p *Proxy) forwardHTTP(ctx *Context, rw http.ResponseWriter) {
-	// if isWebSocketRequest(ctx.Req) {
-	// 	r := ctx.Req
-	// 	Logger.Infof("Request needs websocket upgrade %v %v %v %v", r.URL.Path, r.Host, r.Method, r.URL.String())
-	// 	p.serveHTTPWebsocket(ctx, rw, r)
-	// 	return
-	// }
+	Logger.Debugf("forwardHTTP scheme:%s host:%s", ctx.Req.URL.Scheme, ctx.Req.Host)
 	ctx.Req.URL.Scheme = "http"
 	p.DoRequest(ctx, rw, func(resp *http.Response, err error) {
 		if err != nil {
@@ -318,12 +466,7 @@ func (p *Proxy) forwardHTTP(ctx *Context, rw http.ResponseWriter) {
 }
 
 func (p *Proxy) forwardHTTPS(ctx *Context, rw http.ResponseWriter) {
-	// if isWebSocketRequest(ctx.Req) {
-	// 	r := ctx.Req
-	// 	Logger.Infof("Request needs websocket upgrade %v %v %v %v", r.URL.Path, r.Host, r.Method, r.URL.String())
-	// 	p.serveHTTPSWebsocket(ctx, rw, r)
-	// 	return
-	// }
+	Logger.Debugf("forwardHTTPS scheme:%s host:%s", ctx.Req.URL.Scheme, ctx.Req.Host)
 	tlsConfig, err := p.cert.GenerateTLSConfig(ctx.Req.URL.Host)
 	if err != nil {
 		Logger.Errorf("forwardHTTPS %s generate tlsConfig failed: %s", ctx.Req.URL.Host, err)
@@ -390,12 +533,7 @@ func (p *Proxy) forwardHTTPS(ctx *Context, rw http.ResponseWriter) {
 }
 
 func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
-	// if isWebSocketRequest(ctx.Req) {
-	// 	r := ctx.Req
-	// 	Logger.Infof("Request needs websocket upgrade %v %v %v %v", r.URL.Path, r.Host, r.Method, r.URL.String())
-	// 	p.serveTunnelWebsocket(ctx, rw, r)
-	// 	return
-	// }
+	Logger.Debugf("forwardTunnel scheme:%s host:%s", ctx.Req.URL.Scheme, ctx.Req.Host)
 	parentProxyURL, err := p.delegate.ParentProxy(ctx, rw)
 	if ctx.abort {
 		ctx.SetContextErrType(ParentProxyFail)
