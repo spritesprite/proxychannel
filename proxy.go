@@ -588,7 +588,7 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 
 		connectReq := &http.Request{
 			Method: "CONNECT",
-			// URL:    &url.URL{Opaque: ctx.Req.URL.Host},
+			URL:    &url.URL{Opaque: ctx.Req.URL.Host},
 			Host:   ctx.Req.URL.Host,
 			Header: make(http.Header),
 		}
