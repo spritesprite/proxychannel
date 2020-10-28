@@ -32,6 +32,7 @@ const (
 	TunnelHijackClientConnFail               = "TUNNEL_HIJACK_CLIENT_CONN_FAIL"
 	TunnelDialRemoteServerFail               = "TUNNEL_DIAL_REMOTE_SERVER_FAIL"
 	TunnelWriteEstRespFail                   = "TUNNEL_WRITE_EST_RESP_FAIL"
+	TunnelConnectRemoteFail                  = "TUNNEL_CONNECT_REMOTE_FAIL"
 	TunnelWriteConnFail                      = "TUNNEL_WRITE_CONN_FAIL"
 	HTTPWebsocketDailFail                    = "HTTP_WEBSOCKET_DAIL_FAIL"
 	HTTPWebsocketHijackFail                  = "HTTP_WEBSOCKET_HIJACK_FAIL"

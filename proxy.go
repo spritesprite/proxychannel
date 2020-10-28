@@ -41,14 +41,16 @@ type Proxy struct {
 	clientConnNum int32
 	decryptHTTPS  bool
 	cert          *cert.Certificate
-	transport     *http.Transport
+	transport     map[string]*http.Transport
 }
 
 var _ http.Handler = &Proxy{}
 
 // NewProxy creates a Proxy instance (an HTTP handler)
 func NewProxy(hconf *HandlerConfig, em *ExtensionManager) *Proxy {
-	p := &Proxy{}
+	p := &Proxy{
+		transport: make(map[string]*http.Transport),
+	}
 
 	if hconf.Delegate == nil {
 		p.delegate = &DefaultDelegate{}
@@ -64,7 +66,7 @@ func NewProxy(hconf *HandlerConfig, em *ExtensionManager) *Proxy {
 	p.cert = cert.NewCertificate(hconf.CertCache)
 
 	if hconf.Transport == nil {
-		p.transport = &http.Transport{
+		p.transport["default"] = &http.Transport{
 			TLSClientConfig: &tls.Config{
 				// No need to verify because as a proxy we don't care
 				InsecureSkipVerify: true,
@@ -80,10 +82,10 @@ func NewProxy(hconf *HandlerConfig, em *ExtensionManager) *Proxy {
 			ExpectContinueTimeout: 1 * time.Second,
 		}
 	} else {
-		p.transport = hconf.Transport
+		p.transport["default"] = hconf.Transport
 	}
-	p.transport.DisableKeepAlives = hconf.DisableKeepAlive
-	// p.transport.Proxy = p.delegate.ParentProxy
+	tr, _ := p.transport["default"]
+	tr.DisableKeepAlives = hconf.DisableKeepAlive
 	return p
 }
 
@@ -201,7 +203,24 @@ func (p *Proxy) DoRequest(ctx *Context, rw http.ResponseWriter, responseFunc fun
 		ctx.ReqLength = int64(len(dump))
 	}
 
-	p.transport.Proxy = func(req *http.Request) (*url.URL, error) {
+	auth := ctx.ParentProxyAuth
+	defaultTr, ok := p.transport["default"]
+	if !ok {
+		panic("default transport is not properly set")
+	}
+	tr := defaultTr
+	if auth != "" {
+		tr, ok := p.transport[auth]
+		if !ok {
+			p.transport[auth] = defaultTr.Clone()
+			tr = p.transport[auth]
+		}
+		basicAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(auth))
+		tr.ProxyConnectHeader = http.Header{}
+		tr.ProxyConnectHeader.Add("Proxy-Authorization", basicAuth)
+	}
+
+	tr.Proxy = func(req *http.Request) (*url.URL, error) {
 		ctx := req.Context()
 		pURL := ctx.Value(pkey).(*url.URL)
 		// req = req.Clone(context.Background())
@@ -220,7 +239,7 @@ func (p *Proxy) DoRequest(ctx *Context, rw http.ResponseWriter, responseFunc fun
 		return pURL, err
 	}
 
-	resp, err := p.transport.RoundTrip(newReq)
+	resp, err := tr.RoundTrip(newReq)
 
 	respWrapper := &ResponseWrapper{
 		Resp: resp,
@@ -583,9 +602,6 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 			return
 		}
 	} else {
-		// tunnelRequestLine := makeTunnelRequestLine(ctx.Req.URL.Host)
-		// targetConn.Write([]byte(tunnelRequestLine))
-
 		connectReq := &http.Request{
 			Method: "CONNECT",
 			URL:    &url.URL{Opaque: ctx.Req.URL.Host},
@@ -597,7 +613,12 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 			basicAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(ctx.ParentProxyAuth))
 			connectReq.Header.Add("Proxy-Authorization", basicAuth)
 		}
-		connectReq.Write(targetConn)
+		err := connectReq.Write(targetConn)
+		if err != nil {
+			Logger.Errorf("forwardTunnel %s make connect request to remote failed: %s", ctx.Req.URL.Host, err)
+			ctx.SetContextErrorWithType(err, TunnelConnectRemoteFail)
+			return
+		}
 	}
 
 	transfer(ctx, clientConn, targetConn)
