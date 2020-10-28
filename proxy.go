@@ -210,7 +210,7 @@ func (p *Proxy) DoRequest(ctx *Context, rw http.ResponseWriter, responseFunc fun
 	}
 	tr := defaultTr
 	if auth != "" {
-		tr, ok := p.transport[auth]
+		tr, ok = p.transport[auth]
 		if !ok {
 			p.transport[auth] = defaultTr.Clone()
 			tr = p.transport[auth]
