@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -567,7 +568,6 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 	if err != nil {
 		Logger.Errorf("forwardTunnel %s dial remote server failed: %s", ctx.Req.URL.Host, err)
 		clientConn.Write(badGateway)
-		// rw.WriteHeader(http.StatusBadGateway)
 		ctx.SetContextErrorWithType(err, TunnelDialRemoteServerFail)
 		return
 	}
@@ -583,8 +583,21 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 			return
 		}
 	} else {
-		tunnelRequestLine := makeTunnelRequestLine(ctx.Req.URL.Host)
-		targetConn.Write([]byte(tunnelRequestLine))
+		// tunnelRequestLine := makeTunnelRequestLine(ctx.Req.URL.Host)
+		// targetConn.Write([]byte(tunnelRequestLine))
+
+		connectReq := &http.Request{
+			Method: "CONNECT",
+			// URL:    &url.URL{Opaque: ctx.Req.URL.Host},
+			Host:   ctx.Req.URL.Host,
+			Header: make(http.Header),
+		}
+		if ctx.ParentProxyAuth != "" {
+			// "user:password"
+			basicAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(ctx.ParentProxyAuth))
+			connectReq.Header.Add("Proxy-Authorization", basicAuth)
+		}
+		connectReq.Write(targetConn)
 	}
 
 	transfer(ctx, clientConn, targetConn)

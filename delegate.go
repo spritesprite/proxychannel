@@ -22,17 +22,18 @@ type ConnWrapper struct {
 
 // Context stores what methods of Delegate would need as input.
 type Context struct {
-	Req        *http.Request
-	Data       map[interface{}]interface{}
-	abort      bool
-	Hijack     bool
-	MITM       bool
-	ReqLength  int64
-	RespLength int64
-	ErrType    string
-	Err        error
-	Closed     bool
-	Lock       sync.RWMutex
+	Req             *http.Request
+	Data            map[interface{}]interface{}
+	abort           bool
+	Hijack          bool
+	MITM            bool
+	ReqLength       int64
+	RespLength      int64
+	ParentProxyAuth string
+	ErrType         string
+	Err             error
+	Closed          bool
+	Lock            sync.RWMutex
 }
 
 // GetContextError .
