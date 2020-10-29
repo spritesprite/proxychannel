@@ -41,16 +41,14 @@ type Proxy struct {
 	clientConnNum int32
 	decryptHTTPS  bool
 	cert          *cert.Certificate
-	transport     map[string]*http.Transport
+	transport     *http.Transport
 }
 
 var _ http.Handler = &Proxy{}
 
 // NewProxy creates a Proxy instance (an HTTP handler)
 func NewProxy(hconf *HandlerConfig, em *ExtensionManager) *Proxy {
-	p := &Proxy{
-		transport: make(map[string]*http.Transport),
-	}
+	p := &Proxy{}
 
 	if hconf.Delegate == nil {
 		p.delegate = &DefaultDelegate{}
@@ -66,7 +64,7 @@ func NewProxy(hconf *HandlerConfig, em *ExtensionManager) *Proxy {
 	p.cert = cert.NewCertificate(hconf.CertCache)
 
 	if hconf.Transport == nil {
-		p.transport["default"] = &http.Transport{
+		p.transport = &http.Transport{
 			TLSClientConfig: &tls.Config{
 				// No need to verify because as a proxy we don't care
 				InsecureSkipVerify: true,
@@ -82,10 +80,9 @@ func NewProxy(hconf *HandlerConfig, em *ExtensionManager) *Proxy {
 			ExpectContinueTimeout: 1 * time.Second,
 		}
 	} else {
-		p.transport["default"] = hconf.Transport
+		p.transport = hconf.Transport
 	}
-	tr, _ := p.transport["default"]
-	tr.DisableKeepAlives = hconf.DisableKeepAlive
+	p.transport.DisableKeepAlives = hconf.DisableKeepAlive
 	return p
 }
 
@@ -203,12 +200,7 @@ func (p *Proxy) DoRequest(ctx *Context, rw http.ResponseWriter, responseFunc fun
 		ctx.ReqLength = int64(len(dump))
 	}
 
-	auth := ctx.ParentProxyAuth
-	defaultTr, ok := p.transport["default"]
-	if !ok {
-		panic("default transport is not properly set")
-	}
-	tr := defaultTr
+	tr := p.transport
 	// if auth != "" {
 	// 	tr, ok = p.transport[auth]
 	// 	if !ok {
@@ -236,9 +228,6 @@ func (p *Proxy) DoRequest(ctx *Context, rw http.ResponseWriter, responseFunc fun
 			},
 		}
 		req = req.Clone(httptrace.WithClientTrace(context.Background(), trace))
-		usr := strings.Split(auth, ":")[0]
-		pwd := strings.Split(auth, ":")[1]
-		pURL.User = url.UserPassword(usr, pwd)
 		return pURL, err
 	}
 
@@ -611,9 +600,11 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 			Host:   ctx.Req.URL.Host,
 			Header: make(http.Header),
 		}
-		if ctx.ParentProxyAuth != "" {
-			// "user:password"
-			basicAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(ctx.ParentProxyAuth))
+		u := parentProxyURL.User
+		if u != nil {
+			username := u.Username()
+			password, _ := u.Password()
+			basicAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
 			connectReq.Header.Add("Proxy-Authorization", basicAuth)
 		}
 		err := connectReq.Write(targetConn)
