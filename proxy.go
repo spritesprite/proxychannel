@@ -209,16 +209,16 @@ func (p *Proxy) DoRequest(ctx *Context, rw http.ResponseWriter, responseFunc fun
 		panic("default transport is not properly set")
 	}
 	tr := defaultTr
-	if auth != "" {
-		tr, ok = p.transport[auth]
-		if !ok {
-			p.transport[auth] = defaultTr.Clone()
-			tr = p.transport[auth]
-		}
-		basicAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(auth))
-		tr.ProxyConnectHeader = http.Header{}
-		tr.ProxyConnectHeader.Add("Proxy-Authorization", basicAuth)
-	}
+	// if auth != "" {
+	// 	tr, ok = p.transport[auth]
+	// 	if !ok {
+	// 		p.transport[auth] = defaultTr.Clone()
+	// 		tr = p.transport[auth]
+	// 	}
+	// 	basicAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(auth))
+	// 	tr.ProxyConnectHeader = http.Header{}
+	// 	tr.ProxyConnectHeader.Add("Proxy-Authorization", basicAuth)
+	// }
 
 	tr.Proxy = func(req *http.Request) (*url.URL, error) {
 		ctx := req.Context()
@@ -236,6 +236,9 @@ func (p *Proxy) DoRequest(ctx *Context, rw http.ResponseWriter, responseFunc fun
 			},
 		}
 		req = req.Clone(httptrace.WithClientTrace(context.Background(), trace))
+		usr := strings.Split(auth, ":")[0]
+		pwd := strings.Split(auth, ":")[1]
+		pURL.User = url.UserPassword(usr, pwd)
 		return pURL, err
 	}
 
