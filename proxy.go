@@ -30,7 +30,7 @@ const (
 )
 
 var tunnelEstablishedResponseLine = []byte(fmt.Sprintf("HTTP/1.1 %d Connection established\r\n\r\n", http.StatusOK))
-var badGateway = []byte(fmt.Sprintf("HTTP/1.1 %d %s\r\n\r\n", http.StatusBadGateway, http.StatusText(http.StatusBadGateway)))
+var badGateway = fmt.Sprintf("HTTP/1.1 %d %s\r\n\r\n", http.StatusBadGateway, http.StatusText(http.StatusBadGateway))
 
 func makeTunnelRequestLine(addr string) string {
 	return fmt.Sprintf("CONNECT %s HTTP/1.1\r\n\r\n", addr)
@@ -564,7 +564,7 @@ func (p *Proxy) forwardHTTPS(ctx *Context, rw http.ResponseWriter) {
 	p.DoRequest(ctx, rw, func(resp *http.Response, err error) {
 		if err != nil {
 			Logger.Errorf("forwardHTTPS %s forward request failed: %s", ctx.Req.URL.Host, err)
-			WriteProxyErrorToResponseBody(ctx, tlsClientConn, http.StatusBadGateway, fmt.Sprintf("forwardHTTPS %s forward request failed: %s", ctx.Req.URL.Host, err), fmt.Sprintf("HTTP/1.1 %d ", http.StatusBadGateway))
+			WriteProxyErrorToResponseBody(ctx, tlsClientConn, http.StatusBadGateway, fmt.Sprintf("forwardHTTPS %s forward request failed: %s", ctx.Req.URL.Host, err), badGateway)
 			ctx.SetContextErrorWithType(err, HTTPSDoRequestFail)
 			return
 		}
@@ -616,7 +616,7 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 	}
 	if err != nil {
 		Logger.Errorf("forwardTunnel %s dial remote server failed: %s", ctx.Req.URL.Host, err)
-		WriteProxyErrorToResponseBody(ctx, clientConn, http.StatusBadGateway, fmt.Sprintf("forwardTunnel %s dial remote server failed: %s", ctx.Req.URL.Host, err), fmt.Sprintf("HTTP/1.1 %d ", http.StatusBadGateway))
+		WriteProxyErrorToResponseBody(ctx, clientConn, http.StatusBadGateway, fmt.Sprintf("forwardTunnel %s dial remote server failed: %s", ctx.Req.URL.Host, err), badGateway)
 		ctx.SetContextErrorWithType(err, TunnelDialRemoteServerFail)
 		return
 	}
@@ -648,7 +648,7 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 		err := connectReq.Write(targetConn)
 		if err != nil {
 			Logger.Errorf("forwardTunnel %s make connect request to remote failed: %s", ctx.Req.URL.Host, err)
-			WriteProxyErrorToResponseBody(ctx, clientConn, http.StatusBadGateway, fmt.Sprintf("forwardTunnel %s make connect request to remote failed: %s", ctx.Req.URL.Host, err), fmt.Sprintf("HTTP/1.1 %d ", http.StatusBadGateway))
+			WriteProxyErrorToResponseBody(ctx, clientConn, http.StatusBadGateway, fmt.Sprintf("forwardTunnel %s make connect request to remote failed: %s", ctx.Req.URL.Host, err), badGateway)
 			ctx.SetContextErrorWithType(err, TunnelConnectRemoteFail)
 			return
 		}
