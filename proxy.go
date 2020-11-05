@@ -207,7 +207,7 @@ func (p *Proxy) DoRequest(ctx *Context, rw http.ResponseWriter, responseFunc fun
 	if dumperr != nil {
 		Logger.Errorf("DumpRequestOut failed %s", dumperr)
 	} else {
-		ctx.ReqLength = int64(len(dump))
+		ctx.ReqLength += int64(len(dump))
 	}
 
 	tr := p.transport
@@ -503,7 +503,7 @@ func (p *Proxy) forwardHTTP(ctx *Context, rw http.ResponseWriter) {
 		rw.WriteHeader(resp.StatusCode)
 
 		written, err := io.Copy(rw, resp.Body)
-		ctx.RespLength = written
+		ctx.RespLength += written
 		if err != nil {
 			Logger.Errorf("forwardHTTP %s write client failed: %s", ctx.Req.URL, err)
 			ctx.SetContextErrorWithType(err, HTTPWriteClientFail)
@@ -577,7 +577,7 @@ func (p *Proxy) forwardHTTPS(ctx *Context, rw http.ResponseWriter) {
 			Logger.Errorf("forwardHTTPS %s write response to client connection failed: %s", ctx.Req.URL.Host, err)
 			ctx.SetContextErrorWithType(err, HTTPSWriteRespFail)
 		}
-		ctx.RespLength = int64(lengthWriter.Length())
+		ctx.RespLength += int64(lengthWriter.Length())
 	}, tlsClientConn)
 }
 
@@ -674,7 +674,7 @@ func copyOrWarn(ctx *Context, dst io.Writer, src io.Reader, wg *sync.WaitGroup, 
 		Logger.Errorf("io.Copy failed: %s", err)
 		ctx.SetContextErrorWithType(err, TunnelWriteConnFail)
 	}
-	*len = written
+	*len += written
 	wg.Done()
 }
 
