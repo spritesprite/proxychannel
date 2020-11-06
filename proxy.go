@@ -328,7 +328,7 @@ func (p *Proxy) serveWebsocket(ctx *Context, rw http.ResponseWriter, req *http.R
 		ctx.SetContextErrorWithType(err, HTTPWebsocketDailFail)
 		return
 	}
-	defer CloseNetConn(ctx, targetConn)
+	defer targetConn.Close()
 
 	// Connect to Client
 	hj, ok := rw.(http.Hijacker)
@@ -390,7 +390,7 @@ func (p *Proxy) serveWebsocketTLS(ctx *Context, rw http.ResponseWriter, req *htt
 	}
 
 	tlsClientConn := tls.Server(clientConn, tlsConfig)
-	defer CloseNetConn(ctx, tlsClientConn)
+	defer tlsClientConn.Close()
 
 	// Normal https handshake
 	if err := tlsClientConn.Handshake(); err != nil {
@@ -428,7 +428,7 @@ func (p *Proxy) serveWebsocketTLS(ctx *Context, rw http.ResponseWriter, req *htt
 		ctx.SetContextErrorWithType(err, HTTPSWebsocketDailFail)
 		return
 	}
-	defer CloseNetConn(ctx, targetConn)
+	defer targetConn.Close()
 
 	// wsReq.RemoteAddr = ctx.Req.RemoteAddr
 	wsReq.URL.Scheme = "wss"
@@ -496,7 +496,7 @@ func (p *Proxy) forwardHTTP(ctx *Context, rw http.ResponseWriter) {
 			return
 		}
 
-		defer CloseResponseBody(ctx, resp)
+		defer resp.Body.Close()
 		p.delegate.DuringResponse(ctx, resp)
 
 		CopyHeader(rw.Header(), resp.Header)
@@ -541,7 +541,7 @@ func (p *Proxy) forwardHTTPS(ctx *Context, rw http.ResponseWriter) {
 	// tlsConfig.NextProtos = []string{"h2", "http/1.1", "http/1.0"}
 	tlsClientConn := tls.Server(clientConn, tlsConfig)
 	// tlsClientConn.SetDeadline(time.Now().Add(defaultClientReadWriteTimeout))
-	defer CloseNetConn(ctx, tlsClientConn)
+	defer tlsClientConn.Close()
 	if err := tlsClientConn.Handshake(); err != nil {
 		Logger.Errorf("forwardHTTPS %s handshake failed: %s", ctx.Req.URL.Host, err)
 		ctx.SetContextErrorWithType(err, HTTPSTLSClientConnHandshakeFail)
@@ -568,8 +568,8 @@ func (p *Proxy) forwardHTTPS(ctx *Context, rw http.ResponseWriter) {
 			ctx.SetContextErrorWithType(err, HTTPSDoRequestFail)
 			return
 		}
-		defer CloseResponseBody(ctx, resp)
-		p.delegate.DuringResponse(ctx, resp)
+		defer resp.Body.Close()
+		p.delegate.DuringResponse(ctx, resp) // resp could be closed in this method
 
 		lengthWriter := &WriterWithLength{tlsClientConn, 1, 0}
 		err = resp.Write(lengthWriter)
@@ -620,8 +620,8 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 		ctx.SetContextErrorWithType(err, TunnelDialRemoteServerFail)
 		return
 	}
-	defer CloseNetConn(ctx, targetConn)
-	p.delegate.DuringResponse(ctx, targetConn)
+	defer targetConn.Close()
+	p.delegate.DuringResponse(ctx, targetConn) // targetConn could be closed in this method
 	// clientConn.SetDeadline(time.Now().Add(defaultClientReadWriteTimeout))
 	// targetConn.SetDeadline(time.Now().Add(defaultTargetReadWriteTimeout))
 	if parentProxyURL == nil {
@@ -653,7 +653,6 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 			return
 		}
 	}
-
 	transfer(ctx, clientConn, targetConn)
 }
 
@@ -754,24 +753,21 @@ func CloneBody(b io.ReadCloser) (r io.ReadCloser, body []byte, err error) {
 	return r, body, nil
 }
 
-// CloseResponseBody .
-func CloseResponseBody(ctx *Context, r *http.Response) {
-	ctx.Lock.Lock()
-	defer ctx.Lock.Unlock()
-	if ctx.Closed {
-		return
-	}
-	r.Body.Close()
-	ctx.Closed = true
-}
 
-// CloseNetConn .
-func CloseNetConn(ctx *Context, conn net.Conn) {
-	ctx.Lock.Lock()
-	defer ctx.Lock.Unlock()
-	if ctx.Closed {
-		return
-	}
-	conn.Close()
-	ctx.Closed = true
-}
+// // Closer .
+// type Closer interface {
+// 	Close() error
+// }
+
+// // Close .
+// func Close(ctx *Context, closers... Closer) {
+// 	// ctx.Lock.Lock()
+// 	// defer ctx.Lock.Unlock()
+// 	// if ctx.Closed {
+// 	// 	return
+// 	// }
+// 	for _, c := range closers {
+// 		c.Close()
+// 	}
+// 	// ctx.Closed = true
+// }
