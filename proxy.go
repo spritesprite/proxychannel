@@ -44,6 +44,11 @@ type ProxyError struct {
 	ErrMsg string `json:"errMsg"`
 }
 
+// TunnelConn .
+type TunnelConn struct {
+	Client net.Conn
+	Target net.Conn
+}
 
 // Proxy is a struct that implements ServeHTTP() method
 type Proxy struct {
@@ -621,7 +626,7 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 		return
 	}
 	defer targetConn.Close()
-	p.delegate.DuringResponse(ctx, targetConn) // targetConn could be closed in this method
+	p.delegate.DuringResponse(ctx, &TunnelConn{Client: clientConn, Target: targetConn}) // targetConn could be closed in this method
 	// clientConn.SetDeadline(time.Now().Add(defaultClientReadWriteTimeout))
 	// targetConn.SetDeadline(time.Now().Add(defaultTargetReadWriteTimeout))
 	if parentProxyURL == nil {
