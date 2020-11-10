@@ -641,7 +641,7 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 			Method: "CONNECT",
 			URL:    &url.URL{Opaque: ctx.Req.URL.Host},
 			Host:   ctx.Req.URL.Host,
-			Header: make(http.Header),
+			Header: CloneHeader(ctx.Req.Header),
 		}
 		u := parentProxyURL.User
 		if u != nil {
