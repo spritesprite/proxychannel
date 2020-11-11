@@ -696,7 +696,7 @@ func transfer(ctx *Context, clientConn net.Conn, targetConn net.Conn) {
 		Logger.Errorf("io.Copy write failed: %s", err2)
 		ctx.SetContextErrorWithType(err2, TunnelWriteConnFail)
 	}
-	ctx.RespLength += written2
+	ctx.ReqLength += written2
 	targetConn.Close()
 	clientConn.Close()
 }
