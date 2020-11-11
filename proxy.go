@@ -601,7 +601,15 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 		return
 	}
 	ctx.Hijack = true
-	defer clientConn.Close()
+	defer func() {
+		err := clientConn.Close()
+		if err != nil {
+			Logger.Infof("defer client close err: %s", err)
+		} else {
+			Logger.Infof("defer target close done")
+		}
+	}()
+	// defer clientConn.Close()
 
 	targetAddr := ctx.Req.URL.Host
 	if parentProxyURL != nil {
@@ -624,7 +632,15 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 		ctx.SetContextErrorWithType(err, TunnelDialRemoteServerFail)
 		return
 	}
-	defer targetConn.Close()
+	// defer targetConn.Close()
+	defer func() {
+		err := targetConn.Close()
+		if err != nil {
+			Logger.Infof("target close err: %s", err)
+		} else {
+			Logger.Infof("target close done")
+		}
+	}()
 	p.delegate.DuringResponse(ctx, &TunnelConn{Client: clientConn, Target: targetConn}) // targetConn could be closed in this method
 	// clientConn.SetDeadline(time.Now().Add(defaultClientReadWriteTimeout))
 	// targetConn.SetDeadline(time.Now().Add(defaultTargetReadWriteTimeout))
@@ -669,8 +685,20 @@ func transfer(ctx *Context, src net.Conn, dst net.Conn) {
 	go copyOrWarn(ctx, src, dst, &wg, &ctx.RespLength)
 	go copyOrWarn(ctx, dst, src, &wg, &ctx.ReqLength)
 	wg.Wait()
-	src.Close()
-	dst.Close()
+
+	err1 := src.Close()
+	if err1 != nil {
+		Logger.Infof("client close err: %s", err1)
+	} else {
+		Logger.Infof("client close done")
+	}
+	err2 := dst.Close()
+	if err2 != nil {
+		Logger.Infof("target close err: %s", err2)
+	} else {
+		Logger.Infof("target close done")
+	}
+	Logger.Infof("transfer done")
 }
 
 func copyOrWarn(ctx *Context, dst net.Conn, src net.Conn, wg *sync.WaitGroup, len *int64) {
@@ -683,6 +711,7 @@ func copyOrWarn(ctx *Context, dst net.Conn, src net.Conn, wg *sync.WaitGroup, le
 	}
 	*len += written
 	wg.Done()
+	Logger.Infof("copyOrWarn done")
 }
 
 // hijacker gets the underlying connection of an http.ResponseWriter
