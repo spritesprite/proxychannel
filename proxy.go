@@ -706,9 +706,18 @@ func copyOrWarn(ctx *Context, dst net.Conn, src net.Conn, wg *sync.WaitGroup, le
 	if err != nil {
 		Logger.Errorf("io.Copy failed: %s", err)
 		ctx.SetContextErrorWithType(err, TunnelWriteConnFail)
-		src.Close()
-		dst.Close()
-		Logger.Infof("client & target close done in io.Copy failure")
+		err1 := src.Close()
+		if err1 != nil {
+			Logger.Infof("in io.Copy failure conn close err: %s", err1)
+		} else {
+			Logger.Infof("in io.Copy failure conn close done")
+		}
+		err2 := dst.Close()
+		if err2 != nil {
+			Logger.Infof("in io.Copy failure conn close err: %s", err2)
+		} else {
+			Logger.Infof("in io.Copy failure conn close done")
+		}
 	}
 	*len += written
 	wg.Done()
