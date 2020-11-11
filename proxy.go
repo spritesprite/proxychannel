@@ -678,67 +678,28 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 	transfer(ctx, clientConn, targetConn)
 }
 
-func transfer(ctx *Context, src net.Conn, dst net.Conn) {
+// transfer does two-way forwarding through connections
+func transfer(ctx *Context, clientConn net.Conn, targetConn net.Conn) {
 	go func() {
-		io.Copy(src, dst)
-		src.Close()
-		dst.Close()
+		written1, err1 := io.Copy(clientConn, targetConn)
+		if err1 != nil {
+			Logger.Errorf("io.Copy write failed: %s", err1)
+			ctx.SetContextErrorWithType(err1, TunnelWriteConnFail)
+		}
+		ctx.RespLength += written1
+		clientConn.Close()
+		targetConn.Close()
 	}()
 
-	io.Copy(dst, src)
-	dst.Close()
-	src.Close()
+	written2, err2 := io.Copy(targetConn, clientConn)
+	if err2 != nil {
+		Logger.Errorf("io.Copy write failed: %s", err2)
+		ctx.SetContextErrorWithType(err2, TunnelWriteConnFail)
+	}
+	ctx.RespLength += written2
+	targetConn.Close()
+	clientConn.Close()
 }
-
-// // transfer does two-way forwarding through connections
-// func transfer(ctx *Context, src net.Conn, dst net.Conn) {
-// 	var wg sync.WaitGroup
-// 	wg.Add(2)
-// 	go copyOrWarn(ctx, src, dst, &wg, &ctx.RespLength, false)
-// 	go copyOrWarn(ctx, dst, src, &wg, &ctx.ReqLength, true)
-// 	wg.Wait()
-
-// 	err1 := src.Close()
-// 	if err1 != nil {
-// 		Logger.Infof("client close err: %s", err1)
-// 	} else {
-// 		Logger.Infof("client close done")
-// 	}
-// 	err2 := dst.Close()
-// 	if err2 != nil {
-// 		Logger.Infof("target close err: %s", err2)
-// 	} else {
-// 		Logger.Infof("target close done")
-// 	}
-// 	Logger.Infof("transfer done")
-// }
-
-// func copyOrWarn(ctx *Context, dst net.Conn, src net.Conn, wg *sync.WaitGroup, len *int64, isdstTarget bool) {
-// 	written, err := io.Copy(dst, src)
-// 	if err != nil {
-// 		Logger.Errorf("io.Copy write failed: %s", err)
-// 		ctx.SetContextErrorWithType(err, TunnelWriteConnFail)
-// 		// err1 := src.Close()
-// 		// if err1 != nil {
-// 		// 	Logger.Infof("in io.Copy failure conn close err: %s", err1)
-// 		// } else {
-// 		// 	Logger.Infof("in io.Copy failure conn close done")
-// 		// }
-// 		// err2 := dst.Close()
-// 		// if err2 != nil {
-// 		// 	Logger.Infof("in io.Copy failure conn close err: %s", err2)
-// 		// } else {
-// 		// 	Logger.Infof("in io.Copy failure conn close done")
-// 		// }
-// 	}
-// 	*len += written
-// 	wg.Done()
-// 	if isdstTarget {
-// 		Logger.Infof("copyOrWarn write to target done")
-// 	} else {
-// 		Logger.Infof("copyOrWarn write to client done")
-// 	}
-// }
 
 // hijacker gets the underlying connection of an http.ResponseWriter
 func hijacker(rw http.ResponseWriter) (net.Conn, error) {
@@ -833,4 +794,54 @@ func CloneBody(b io.ReadCloser) (r io.ReadCloser, body []byte, err error) {
 // 		c.Close()
 // 	}
 // 	// ctx.Closed = true
+// }
+
+// transfer does two-way forwarding through connections
+// func transfer(ctx *Context, src net.Conn, dst net.Conn) {
+// 	var wg sync.WaitGroup
+// 	wg.Add(2)
+// 	go copyOrWarn(ctx, src, dst, &wg, &ctx.RespLength, false)
+// 	go copyOrWarn(ctx, dst, src, &wg, &ctx.ReqLength, true)
+// 	wg.Wait()
+
+// 	err1 := src.Close()
+// 	if err1 != nil {
+// 		Logger.Infof("client close err: %s", err1)
+// 	} else {
+// 		Logger.Infof("client close done")
+// 	}
+// 	err2 := dst.Close()
+// 	if err2 != nil {
+// 		Logger.Infof("target close err: %s", err2)
+// 	} else {
+// 		Logger.Infof("target close done")
+// 	}
+// 	Logger.Infof("transfer done")
+// }
+
+// func copyOrWarn(ctx *Context, dst net.Conn, src net.Conn, wg *sync.WaitGroup, len *int64, isdstTarget bool) {
+// 	written, err := io.Copy(dst, src)
+// 	if err != nil {
+// 		Logger.Errorf("io.Copy write failed: %s", err)
+// 		ctx.SetContextErrorWithType(err, TunnelWriteConnFail)
+// 		// err1 := src.Close()
+// 		// if err1 != nil {
+// 		// 	Logger.Infof("in io.Copy failure conn close err: %s", err1)
+// 		// } else {
+// 		// 	Logger.Infof("in io.Copy failure conn close done")
+// 		// }
+// 		// err2 := dst.Close()
+// 		// if err2 != nil {
+// 		// 	Logger.Infof("in io.Copy failure conn close err: %s", err2)
+// 		// } else {
+// 		// 	Logger.Infof("in io.Copy failure conn close done")
+// 		// }
+// 	}
+// 	*len += written
+// 	wg.Done()
+// 	if isdstTarget {
+// 		Logger.Infof("copyOrWarn write to target done")
+// 	} else {
+// 		Logger.Infof("copyOrWarn write to client done")
+// 	}
 // }
