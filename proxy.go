@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -637,26 +636,28 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 			return
 		}
 	} else {
-		connectReq := &http.Request{
-			Method: "CONNECT",
-			URL:    &url.URL{Opaque: ctx.Req.URL.Host},
-			Host:   ctx.Req.URL.Host,
-			Header: CloneHeader(ctx.Req.Header),
-		}
-		u := parentProxyURL.User
-		if u != nil {
-			username := u.Username()
-			password, _ := u.Password()
-			basicAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
-			connectReq.Header.Add("Proxy-Authorization", basicAuth)
-		}
-		err := connectReq.WriteProxy(targetConn)
-		if err != nil {
-			Logger.Errorf("forwardTunnel %s make connect request to remote failed: %s", ctx.Req.URL.Host, err)
-			WriteProxyErrorToResponseBody(ctx, clientConn, http.StatusBadGateway, fmt.Sprintf("forwardTunnel %s make connect request to remote failed: %s", ctx.Req.URL.Host, err), badGateway)
-			ctx.SetContextErrorWithType(err, TunnelConnectRemoteFail)
-			return
-		}
+		// connectReq := &http.Request{
+		// 	Method: "CONNECT",
+		// 	URL:    &url.URL{Opaque: ctx.Req.URL.Host},
+		// 	Host:   ctx.Req.URL.Host,
+		// 	Header: CloneHeader(ctx.Req.Header),
+		// }
+		// u := parentProxyURL.User
+		// if u != nil {
+		// 	username := u.Username()
+		// 	password, _ := u.Password()
+		// 	basicAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
+		// 	connectReq.Header.Add("Proxy-Authorization", basicAuth)
+		// }
+		// err := connectReq.Write(targetConn)
+		// if err != nil {
+		// 	Logger.Errorf("forwardTunnel %s make connect request to remote failed: %s", ctx.Req.URL.Host, err)
+		// 	WriteProxyErrorToResponseBody(ctx, clientConn, http.StatusBadGateway, fmt.Sprintf("forwardTunnel %s make connect request to remote failed: %s", ctx.Req.URL.Host, err), badGateway)
+		// 	ctx.SetContextErrorWithType(err, TunnelConnectRemoteFail)
+		// 	return
+		// }
+		tunnelRequestLine := makeTunnelRequestLine(ctx.Req.URL.Host)
+		targetConn.Write([]byte(tunnelRequestLine))
 	}
 	transfer(ctx, clientConn, targetConn)
 }
@@ -677,8 +678,8 @@ func copyOrWarn(ctx *Context, dst net.Conn, src net.Conn, wg *sync.WaitGroup, le
 	if err != nil {
 		Logger.Errorf("io.Copy failed: %s", err)
 		ctx.SetContextErrorWithType(err, TunnelWriteConnFail)
-		// src.Close()
-		// dst.Close()
+		src.Close()
+		dst.Close()
 	}
 	*len += written
 	wg.Done()
