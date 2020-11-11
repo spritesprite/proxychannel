@@ -675,11 +675,10 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 		// tunnelRequestLine := makeTunnelRequestLine(ctx.Req.URL.Host)
 		// targetConn.Write([]byte(tunnelRequestLine))
 	}
-	// transfer(ctx, clientConn, targetConn)
-	transfer(clientConn, targetConn)
+	transfer(ctx, clientConn, targetConn)
 }
 
-func transfer(src net.Conn, dst net.Conn) {
+func transfer(ctx *Context, src net.Conn, dst net.Conn) {
 	go func() {
 		io.Copy(src, dst)
 		src.Close()
