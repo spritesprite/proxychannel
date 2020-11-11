@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -652,28 +653,28 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 			return
 		}
 	} else {
-		// connectReq := &http.Request{
-		// 	Method: "CONNECT",
-		// 	URL:    &url.URL{Opaque: ctx.Req.URL.Host},
-		// 	Host:   ctx.Req.URL.Host,
-		// 	Header: CloneHeader(ctx.Req.Header),
-		// }
-		// u := parentProxyURL.User
-		// if u != nil {
-		// 	username := u.Username()
-		// 	password, _ := u.Password()
-		// 	basicAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
-		// 	connectReq.Header.Add("Proxy-Authorization", basicAuth)
-		// }
-		// err := connectReq.Write(targetConn)
-		// if err != nil {
-		// 	Logger.Errorf("forwardTunnel %s make connect request to remote failed: %s", ctx.Req.URL.Host, err)
-		// 	WriteProxyErrorToResponseBody(ctx, clientConn, http.StatusBadGateway, fmt.Sprintf("forwardTunnel %s make connect request to remote failed: %s", ctx.Req.URL.Host, err), badGateway)
-		// 	ctx.SetContextErrorWithType(err, TunnelConnectRemoteFail)
-		// 	return
-		// }
-		tunnelRequestLine := makeTunnelRequestLine(ctx.Req.URL.Host)
-		targetConn.Write([]byte(tunnelRequestLine))
+		connectReq := &http.Request{
+			Method: "CONNECT",
+			URL:    &url.URL{Opaque: ctx.Req.URL.Host},
+			Host:   ctx.Req.URL.Host,
+			Header: CloneHeader(ctx.Req.Header),
+		}
+		u := parentProxyURL.User
+		if u != nil {
+			username := u.Username()
+			password, _ := u.Password()
+			basicAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
+			connectReq.Header.Add("Proxy-Authorization", basicAuth)
+		}
+		err := connectReq.Write(targetConn)
+		if err != nil {
+			Logger.Errorf("forwardTunnel %s make connect request to remote failed: %s", ctx.Req.URL.Host, err)
+			WriteProxyErrorToResponseBody(ctx, clientConn, http.StatusBadGateway, fmt.Sprintf("forwardTunnel %s make connect request to remote failed: %s", ctx.Req.URL.Host, err), badGateway)
+			ctx.SetContextErrorWithType(err, TunnelConnectRemoteFail)
+			return
+		}
+		// tunnelRequestLine := makeTunnelRequestLine(ctx.Req.URL.Host)
+		// targetConn.Write([]byte(tunnelRequestLine))
 	}
 	transfer(ctx, clientConn, targetConn)
 }
@@ -682,8 +683,8 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 func transfer(ctx *Context, src net.Conn, dst net.Conn) {
 	var wg sync.WaitGroup
 	wg.Add(2)
-	go copyOrWarn(ctx, src, dst, &wg, &ctx.RespLength)
-	go copyOrWarn(ctx, dst, src, &wg, &ctx.ReqLength)
+	go copyOrWarn(ctx, src, dst, &wg, &ctx.RespLength, false)
+	go copyOrWarn(ctx, dst, src, &wg, &ctx.ReqLength, true)
 	wg.Wait()
 
 	err1 := src.Close()
@@ -701,27 +702,31 @@ func transfer(ctx *Context, src net.Conn, dst net.Conn) {
 	Logger.Infof("transfer done")
 }
 
-func copyOrWarn(ctx *Context, dst net.Conn, src net.Conn, wg *sync.WaitGroup, len *int64) {
+func copyOrWarn(ctx *Context, dst net.Conn, src net.Conn, wg *sync.WaitGroup, len *int64, isdstTarget bool) {
 	written, err := io.Copy(dst, src)
 	if err != nil {
-		Logger.Errorf("io.Copy failed: %s", err)
+		Logger.Errorf("io.Copy write failed: %s", err)
 		ctx.SetContextErrorWithType(err, TunnelWriteConnFail)
-		err1 := src.Close()
-		if err1 != nil {
-			Logger.Infof("in io.Copy failure conn close err: %s", err1)
-		} else {
-			Logger.Infof("in io.Copy failure conn close done")
-		}
-		err2 := dst.Close()
-		if err2 != nil {
-			Logger.Infof("in io.Copy failure conn close err: %s", err2)
-		} else {
-			Logger.Infof("in io.Copy failure conn close done")
-		}
+		// err1 := src.Close()
+		// if err1 != nil {
+		// 	Logger.Infof("in io.Copy failure conn close err: %s", err1)
+		// } else {
+		// 	Logger.Infof("in io.Copy failure conn close done")
+		// }
+		// err2 := dst.Close()
+		// if err2 != nil {
+		// 	Logger.Infof("in io.Copy failure conn close err: %s", err2)
+		// } else {
+		// 	Logger.Infof("in io.Copy failure conn close done")
+		// }
 	}
 	*len += written
 	wg.Done()
-	Logger.Infof("copyOrWarn done")
+	if isdstTarget {
+		Logger.Infof("copyOrWarn write to target done")
+	} else {
+		Logger.Infof("copyOrWarn write to client done")
+	}
 }
 
 // hijacker gets the underlying connection of an http.ResponseWriter
