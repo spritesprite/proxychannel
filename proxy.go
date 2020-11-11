@@ -641,7 +641,7 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 			Method: "CONNECT",
 			URL:    &url.URL{Opaque: ctx.Req.URL.Host},
 			Host:   ctx.Req.URL.Host,
-			// Header: CloneHeader(ctx.Req.Header),
+			Header: CloneHeader(ctx.Req.Header),
 		}
 		u := parentProxyURL.User
 		if u != nil {
@@ -650,7 +650,7 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 			basicAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
 			connectReq.Header.Add("Proxy-Authorization", basicAuth)
 		}
-		err := connectReq.Write(targetConn)
+		err := connectReq.WriteProxy(targetConn)
 		if err != nil {
 			Logger.Errorf("forwardTunnel %s make connect request to remote failed: %s", ctx.Req.URL.Host, err)
 			WriteProxyErrorToResponseBody(ctx, clientConn, http.StatusBadGateway, fmt.Sprintf("forwardTunnel %s make connect request to remote failed: %s", ctx.Req.URL.Host, err), badGateway)
