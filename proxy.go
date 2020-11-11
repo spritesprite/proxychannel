@@ -606,7 +606,7 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 		if err != nil {
 			Logger.Infof("defer client close err: %s", err)
 		} else {
-			Logger.Infof("defer target close done")
+			Logger.Infof("defer client close done")
 		}
 	}()
 	// defer clientConn.Close()
@@ -636,9 +636,9 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 	defer func() {
 		err := targetConn.Close()
 		if err != nil {
-			Logger.Infof("target close err: %s", err)
+			Logger.Infof("defer target close err: %s", err)
 		} else {
-			Logger.Infof("target close done")
+			Logger.Infof("defer target close done")
 		}
 	}()
 	p.delegate.DuringResponse(ctx, &TunnelConn{Client: clientConn, Target: targetConn}) // targetConn could be closed in this method
