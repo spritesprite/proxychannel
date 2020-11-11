@@ -708,6 +708,7 @@ func copyOrWarn(ctx *Context, dst net.Conn, src net.Conn, wg *sync.WaitGroup, le
 		ctx.SetContextErrorWithType(err, TunnelWriteConnFail)
 		src.Close()
 		dst.Close()
+		Logger.Infof("client & target close done in io.Copy failure")
 	}
 	*len += written
 	wg.Done()
