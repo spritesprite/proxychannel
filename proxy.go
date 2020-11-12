@@ -38,9 +38,9 @@ func makeTunnelRequestLine(addr string) string {
 // ProxyError specifies all the possible errors that can occur due to this proxy's behavior,
 // which does not include the behavior of parent proxies.
 type ProxyError struct {
-	ErrType    string `json:"errType"`
-	ErrCode    int32 `json:"errCode"`
-	ErrMsg string `json:"errMsg"`
+	ErrType string `json:"errType"`
+	ErrCode int32  `json:"errCode"`
+	ErrMsg  string `json:"errMsg"`
 }
 
 // TunnelConn .
@@ -478,7 +478,7 @@ func WriteProxyErrorToResponseBody(ctx *Context, respWriter Writer, httpcode int
 	pe := &ProxyError{
 		ErrType: "PROXY_CENTER_INTERNAL_ERR",
 		ErrCode: httpcode,
-		ErrMsg: msg,
+		ErrMsg:  msg,
 	}
 	errJSON, err := json.Marshal(pe)
 	if err != nil {
@@ -596,7 +596,7 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 	if err != nil {
 		Logger.Errorf("forwardTunnel hijack client connection failed: %s", err)
 		rw.WriteHeader(http.StatusBadGateway)
-		WriteProxyErrorToResponseBody(ctx, rw, http.StatusBadGateway, fmt.Sprintf("forwardTunnel hijack client connection failed: %s", err), "")		
+		WriteProxyErrorToResponseBody(ctx, rw, http.StatusBadGateway, fmt.Sprintf("forwardTunnel hijack client connection failed: %s", err), "")
 		ctx.SetContextErrorWithType(err, TunnelHijackClientConnFail)
 		return
 	}
@@ -684,7 +684,7 @@ func transfer(ctx *Context, clientConn net.Conn, targetConn net.Conn) {
 		written1, err1 := io.Copy(clientConn, targetConn)
 		if err1 != nil {
 			Logger.Errorf("io.Copy write clientConn failed: %s", err1)
-			ctx.SetContextErrorWithType(err1, TunnelWriteConnFail)
+			ctx.SetContextErrorWithType(err1, TunnelWriteClientConnFinish)
 		}
 		ctx.RespLength += written1
 		clientConn.Close()
@@ -694,7 +694,7 @@ func transfer(ctx *Context, clientConn net.Conn, targetConn net.Conn) {
 	written2, err2 := io.Copy(targetConn, clientConn)
 	if err2 != nil {
 		Logger.Errorf("io.Copy write targetConn failed: %s", err2)
-		ctx.SetContextErrorWithType(err2, TunnelWriteConnFail)
+		ctx.SetContextErrorWithType(err2, TunnelWriteTargetConnFinish)
 	}
 	ctx.ReqLength += written2
 	targetConn.Close()
@@ -776,7 +776,6 @@ func CloneBody(b io.ReadCloser) (r io.ReadCloser, body []byte, err error) {
 
 	return r, body, nil
 }
-
 
 // // Closer .
 // type Closer interface {
