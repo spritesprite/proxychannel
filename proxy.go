@@ -683,7 +683,7 @@ func transfer(ctx *Context, clientConn net.Conn, targetConn net.Conn) {
 	go func() {
 		written1, err1 := io.Copy(clientConn, targetConn)
 		if err1 != nil {
-			Logger.Errorf("io.Copy write failed: %s", err1)
+			Logger.Errorf("io.Copy write clientConn failed: %s", err1)
 			ctx.SetContextErrorWithType(err1, TunnelWriteConnFail)
 		}
 		ctx.RespLength += written1
@@ -693,7 +693,7 @@ func transfer(ctx *Context, clientConn net.Conn, targetConn net.Conn) {
 
 	written2, err2 := io.Copy(targetConn, clientConn)
 	if err2 != nil {
-		Logger.Errorf("io.Copy write failed: %s", err2)
+		Logger.Errorf("io.Copy write targetConn failed: %s", err2)
 		ctx.SetContextErrorWithType(err2, TunnelWriteConnFail)
 	}
 	ctx.ReqLength += written2
