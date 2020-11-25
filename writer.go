@@ -5,6 +5,23 @@ import (
 	"net/http"
 )
 
+// Writer .
+type Writer interface {
+	Write([]byte) (int, error)
+}
+
+// WriterWithProtocol .
+type WriterWithProtocol struct {
+	writer Writer
+	length int
+}
+
+func (w *WriterWithProtocol) Write(b []byte) (n int, err error) {
+	n, err = w.Write(b)
+	w.length += n
+	return n, err
+}
+
 // WriterWithLength .
 type WriterWithLength struct {
 	writer        interface{} // io.Writer or http.ResponseWriter
@@ -30,7 +47,7 @@ func (w *WriterWithLength) Write(b []byte) (n int, err error) {
 		n, err = ioWriter.Write(b)
 		w.length += n
 	}
-	return
+	return n, err
 }
 
 // Length .

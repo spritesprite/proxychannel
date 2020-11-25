@@ -463,11 +463,6 @@ func (p *Proxy) forwardHTTPSWebsocket(ctx *Context, rw http.ResponseWriter) {
 	p.serveWebsocketTLS(ctx, rw, r)
 }
 
-// Writer .
-type Writer interface {
-	Write([]byte) (int, error)
-}
-
 // WriteProxyErrorToResponseBody is the standard function to call when errors occur due to this proxy's behavior,
 // which does not include the behavior of parent proxies.
 func WriteProxyErrorToResponseBody(ctx *Context, respWriter Writer, httpcode int32, msg string, optionalPrefix string) {
