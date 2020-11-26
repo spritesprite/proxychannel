@@ -66,6 +66,7 @@ type HandlerConfig struct {
 	DecryptHTTPS     bool
 	CertCache        cert.Cache
 	Transport        *http.Transport
+	Mode             int
 }
 
 // ServerConfig .
