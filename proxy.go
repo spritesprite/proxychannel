@@ -100,6 +100,7 @@ func NewProxy(hconf *HandlerConfig, em *ExtensionManager) *Proxy {
 		}
 	} else {
 		p.transport = hconf.Transport
+		p.transport.ProxyConnectHeader = make(http.Header)
 	}
 	p.transport.DisableKeepAlives = hconf.DisableKeepAlive
 	p.mode = hconf.Mode
