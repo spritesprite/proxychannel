@@ -559,7 +559,7 @@ func (p *Proxy) forwardHTTPS(ctx *Context, rw http.ResponseWriter) {
 	// tlsConfig.NextProtos = []string{"h2", "http/1.1", "http/1.0"}
 	tlsClientConn := tls.Server(clientConn, tlsConfig)
 	// tlsClientConn.SetDeadline(time.Now().Add(defaultClientReadWriteTimeout))
-	defer tlsClientConn.Close()
+	// defer tlsClientConn.Close()
 	if err := tlsClientConn.Handshake(); err != nil {
 		Logger.Errorf("forwardHTTPS %s handshake failed: %s", ctx.Req.URL.Host, err)
 		ctx.SetContextErrorWithType(err, HTTPSTLSClientConnHandshakeFail)
