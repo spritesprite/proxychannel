@@ -96,6 +96,7 @@ func NewProxy(hconf *HandlerConfig, em *ExtensionManager) *Proxy {
 			IdleConnTimeout:       90 * time.Second,
 			TLSHandshakeTimeout:   10 * time.Second,
 			ExpectContinueTimeout: 1 * time.Second,
+			ProxyConnectHeader:    make(http.Header),
 		}
 	} else {
 		p.transport = hconf.Transport
