@@ -103,7 +103,7 @@ func NewProxy(hconf *HandlerConfig, em *ExtensionManager) *Proxy {
 	p.transport.DisableKeepAlives = hconf.DisableKeepAlive
 	p.mode = hconf.Mode
 	if p.mode == ConnPoolMode {
-		p.transport.ProxyConnectHeader.Add("MITM", "Enabled")
+		p.transport.ProxyConnectHeader.Set("MITM", "Enabled")
 	}
 	return p
 }
