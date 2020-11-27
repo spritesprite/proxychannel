@@ -91,7 +91,7 @@ func NewProxy(hconf *HandlerConfig, em *ExtensionManager) *Proxy {
 				KeepAlive: 30 * time.Second,
 				DualStack: true,
 			}).DialContext,
-			MaxIdleConns:          1000,
+			MaxIdleConns:          100,
 			MaxIdleConnsPerHost:   10,
 			IdleConnTimeout:       90 * time.Second,
 			TLSHandshakeTimeout:   10 * time.Second,
@@ -102,6 +102,9 @@ func NewProxy(hconf *HandlerConfig, em *ExtensionManager) *Proxy {
 	}
 	p.transport.DisableKeepAlives = hconf.DisableKeepAlive
 	p.mode = hconf.Mode
+	if p.mode == ConnPoolMode {
+		p.transport.ProxyConnectHeader.Add("MITM", "Enabled")
+	}
 	return p
 }
 
