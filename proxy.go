@@ -164,7 +164,8 @@ func (p *Proxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		}
 	case ConnPoolMode:
 		if ctx.Req.Method == http.MethodConnect {
-			p.forwardHTTPSWithConnPool(ctx, rw)
+			p.forwardTunnelWithConnPool(ctx, rw)
+			// p.forwardHTTPSWithConnPool(ctx, rw)
 		} else {
 			p.forwardHTTPWithConnPool(ctx, rw)
 		}
@@ -888,84 +889,111 @@ func (p *Proxy) forwardHTTPSWithConnPool(ctx *Context, rw http.ResponseWriter) {
 	}, tlsClientConn)
 }
 
-// func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) {
-// 	Logger.Debugf("forwardTunnelWithConnPool scheme:%s host:%s", ctx.Req.URL.Scheme, ctx.Req.Host)
-// 	clientConn, err := hijacker(rw)
-// 	if err != nil {
-// 		Logger.Errorf("forwardTunnel hijack client connection failed: %s", err)
-// 		rw.WriteHeader(http.StatusBadGateway)
-// 		WriteProxyErrorToResponseBody(ctx, rw, http.StatusBadGateway, fmt.Sprintf("forwardTunnel hijack client connection failed: %s", err), "")
-// 		ctx.SetContextErrorWithType(err, TunnelHijackClientConnFail)
-// 		return
-// 	}
-// 	ctx.Hijack = true
-// 	defer func() {
-// 		err := clientConn.Close()
-// 		if err != nil {
-// 			Logger.Infof("defer client close err: %s", err)
-// 		} else {
-// 			Logger.Infof("defer client close done")
-// 		}
-// 	}()
+func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) {
+	Logger.Debugf("forwardTunnelWithConnPool scheme:%s host:%s", ctx.Req.URL.Scheme, ctx.Req.Host)
+	clientConn, err := hijacker(rw)
+	if err != nil {
+		Logger.Errorf("forwardTunnel hijack client connection failed: %s", err)
+		rw.WriteHeader(http.StatusBadGateway)
+		WriteProxyErrorToResponseBody(ctx, rw, http.StatusBadGateway, fmt.Sprintf("forwardTunnel hijack client connection failed: %s", err), "")
+		ctx.SetContextErrorWithType(err, TunnelHijackClientConnFail)
+		return
+	}
+	ctx.Hijack = true
+	defer func() {
+		err := clientConn.Close()
+		if err != nil {
+			Logger.Infof("defer client close err: %s", err)
+		} else {
+			Logger.Infof("defer client close done")
+		}
+	}()
 
-// 	pool, parentProxyURL, err := p.delegate.GetConnPool(ctx)
-// 	if err != nil {
-// 		// TODO
-// 		return
-// 	}
-// 	targetConn, err := pool.Get()
-// 	connWrapper := &ConnWrapper{
-// 		Conn: targetConn,
-// 		Err:  err,
-// 	}
-// 	p.delegate.BeforeResponse(ctx, connWrapper)
-// 	if ctx.abort {
-// 		ctx.SetContextErrType(BeforeResponseFail)
-// 		return
-// 	}
-// 	if err != nil {
-// 		// TODO: retry
-// 		Logger.Errorf("forwardTunnel %s dial remote server failed: %s", ctx.Req.URL.Host, err)
-// 		WriteProxyErrorToResponseBody(ctx, clientConn, http.StatusBadGateway, fmt.Sprintf("forwardTunnel %s dial remote server failed: %s", ctx.Req.URL.Host, err), badGateway)
-// 		ctx.SetContextErrorWithType(err, TunnelDialRemoteServerFail)
-// 		return
-// 	}
-// 	// defer targetConn.Close()
-// 	defer func() {
-// 		err := targetConn.Close()
-// 		if err != nil {
-// 			Logger.Infof("defer target close err: %s", err)
-// 		} else {
-// 			Logger.Infof("defer target close done")
-// 		}
-// 	}()
-// 	p.delegate.DuringResponse(ctx, &TunnelConn{Client: clientConn, Target: targetConn}) // targetConn could be closed in this method
+	parentProxyURL, err := p.delegate.ParentProxy(ctx, rw)
+	if ctx.abort {
+		ctx.SetContextErrType(ParentProxyFail)
+		return
+	}
+	targetConn, err := net.DialTimeout("tcp", parentProxyURL.Host, defaultTargetConnectTimeout)
 
-// 	connectReq := &http.Request{
-// 		Method: "CONNECT",
-// 		URL:    &url.URL{Opaque: ctx.Req.URL.Host},
-// 		Host:   ctx.Req.URL.Host,
-// 		Header: CloneHeader(ctx.Req.Header),
-// 	}
-// 	u := parentProxyURL.User
-// 	if u != nil {
-// 		username := u.Username()
-// 		password, _ := u.Password()
-// 		basicAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
-// 		connectReq.Header.Add("Proxy-Authorization", basicAuth)
-// 	}
-// 	err = connectReq.Write(targetConn)
-// 	if err != nil {
-// 		Logger.Errorf("forwardTunnel %s make connect request to remote failed: %s", ctx.Req.URL.Host, err)
-// 		WriteProxyErrorToResponseBody(ctx, clientConn, http.StatusBadGateway, fmt.Sprintf("forwardTunnel %s make connect request to remote failed: %s", ctx.Req.URL.Host, err), badGateway)
-// 		ctx.SetContextErrorWithType(err, TunnelConnectRemoteFail)
-// 		return
-// 	}
-// 	written1, err1 := io.Copy(clientConn, targetConn)
-// 	if err1 != nil {
-// 		Logger.Errorf("io.Copy write clientConn failed: %s", err1)
-// 		ctx.SetContextErrorWithType(err1, TunnelWriteClientConnFinish)
-// 	}
+	// pool, parentProxyURL, err := p.delegate.GetConnPool(ctx)
+	// if err != nil {
+	// 	// TODO
+	// 	return
+	// }
+	// targetConn, err := pool.Get()
 
-// 	transfer(ctx, clientConn, targetConn)
-// }
+	connWrapper := &ConnWrapper{
+		Conn: targetConn,
+		Err:  err,
+	}
+	p.delegate.BeforeResponse(ctx, connWrapper)
+	if ctx.abort {
+		ctx.SetContextErrType(BeforeResponseFail)
+		return
+	}
+	if err != nil {
+		// TODO: retry
+		Logger.Errorf("forwardTunnel %s dial remote server failed: %s", ctx.Req.URL.Host, err)
+		WriteProxyErrorToResponseBody(ctx, clientConn, http.StatusBadGateway, fmt.Sprintf("forwardTunnel %s dial remote server failed: %s", ctx.Req.URL.Host, err), badGateway)
+		ctx.SetContextErrorWithType(err, TunnelDialRemoteServerFail)
+		return
+	}
+	// defer targetConn.Close()
+	defer func() {
+		err := targetConn.Close()
+		if err != nil {
+			Logger.Infof("defer target close err: %s", err)
+		} else {
+			Logger.Infof("defer target close done")
+		}
+	}()
+	p.delegate.DuringResponse(ctx, &TunnelConn{Client: clientConn, Target: targetConn}) // targetConn could be closed in this method
+
+	connectReq := &http.Request{
+		Method: "CONNECT",
+		URL:    &url.URL{Opaque: ctx.Req.URL.Host},
+		Host:   ctx.Req.URL.Host,
+		Header: CloneHeader(ctx.Req.Header),
+	}
+	u := parentProxyURL.User
+	if u != nil {
+		username := u.Username()
+		password, _ := u.Password()
+		basicAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
+		connectReq.Header.Add("Proxy-Authorization", basicAuth)
+	}
+	err = connectReq.Write(targetConn)
+	if err != nil {
+		Logger.Errorf("forwardTunnel %s make connect request to remote failed: %s", ctx.Req.URL.Host, err)
+		WriteProxyErrorToResponseBody(ctx, clientConn, http.StatusBadGateway, fmt.Sprintf("forwardTunnel %s make connect request to remote failed: %s", ctx.Req.URL.Host, err), badGateway)
+		ctx.SetContextErrorWithType(err, TunnelConnectRemoteFail)
+		return
+	}
+
+	connectResult := make([]byte, 1024)
+
+	n, err := targetConn.Read(connectResult[:]) // recv data
+	if err != nil {
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			Logger.Errorf("read timeout:", err)
+			// time out
+		} else {
+			Logger.Errorf("read error:", err)
+			// some error else, do something else, for example create new conn
+		}
+	}
+
+	m, err := clientConn.Write(connectResult[:])
+	if err != nil {
+		Logger.Errorf("write error:", err)
+	}
+
+	if n == m {
+		ctx.RespLength += int64(n)
+	} else {
+		Logger.Errorf("partial write: %s", ctx.Req.URL.Host)
+	}
+
+	transfer(ctx, clientConn, targetConn)
+}
