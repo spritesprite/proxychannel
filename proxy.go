@@ -971,7 +971,7 @@ func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) 
 		return
 	}
 
-	connectResult := make([]byte, 1024)
+	connectResult := make([]byte, 15)
 
 	n, err := targetConn.Read(connectResult[:]) // recv data
 	if err != nil {
