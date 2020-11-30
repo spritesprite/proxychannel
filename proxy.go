@@ -984,6 +984,7 @@ func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) 
 		}
 	}
 
+	Logger.Debugf("connectResult: %s", connectResult)
 	m, err := clientConn.Write(connectResult[:])
 	if err != nil {
 		Logger.Errorf("write error:", err)
