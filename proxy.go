@@ -550,7 +550,7 @@ func (p *Proxy) forwardHTTPS(ctx *Context, rw http.ResponseWriter) {
 		return
 	}
 	ctx.Hijack = true
-	defer clientConn.Close()
+	// defer clientConn.Close()
 	_, err = clientConn.Write(tunnelEstablishedResponseLine)
 	if err != nil {
 		Logger.Errorf("forwardHTTPS %s write message failed: %s", ctx.Req.URL.Host, err)
@@ -560,7 +560,7 @@ func (p *Proxy) forwardHTTPS(ctx *Context, rw http.ResponseWriter) {
 	// tlsConfig.NextProtos = []string{"h2", "http/1.1", "http/1.0"}
 	tlsClientConn := tls.Server(clientConn, tlsConfig)
 	// tlsClientConn.SetDeadline(time.Now().Add(defaultClientReadWriteTimeout))
-	defer tlsClientConn.Close()
+	// defer tlsClientConn.Close()
 	if err := tlsClientConn.Handshake(); err != nil {
 		Logger.Errorf("forwardHTTPS %s handshake failed: %s", ctx.Req.URL.Host, err)
 		ctx.SetContextErrorWithType(err, HTTPSTLSClientConnHandshakeFail)
@@ -821,7 +821,7 @@ func (p *Proxy) forwardHTTPWithConnPool(ctx *Context, rw http.ResponseWriter) {
 }
 
 func (p *Proxy) forwardHTTPSWithConnPool(ctx *Context, rw http.ResponseWriter) {
-	Logger.Debugf("forwardHTTPS scheme:%s host:%s", ctx.Req.URL.Scheme, ctx.Req.Host)
+	Logger.Debugf("forwardHTTPSWithConnPool scheme:%s host:%s", ctx.Req.URL.Scheme, ctx.Req.Host)
 	tlsConfig, err := p.cert.GenerateTLSConfig(ctx.Req.URL.Host)
 	if err != nil {
 		Logger.Errorf("forwardHTTPS %s generate tlsConfig failed: %s", ctx.Req.URL.Host, err)
@@ -971,7 +971,7 @@ func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) 
 		return
 	}
 
-	connectResult := make([]byte, 15)
+	connectResult := make([]byte, 15) // "HTTP/X.X 200 OK" takes 15 bytes
 
 	n, err := targetConn.Read(connectResult[:]) // recv data
 	if err != nil {
