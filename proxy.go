@@ -164,8 +164,8 @@ func (p *Proxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		}
 	case ConnPoolMode:
 		if ctx.Req.Method == http.MethodConnect {
-			p.forwardTunnelWithConnPool(ctx, rw)
-			// p.forwardHTTPSWithConnPool(ctx, rw)
+			// p.forwardTunnelWithConnPool(ctx, rw)
+			p.forwardHTTPSWithConnPool(ctx, rw)
 		} else {
 			p.forwardHTTPWithConnPool(ctx, rw)
 		}
