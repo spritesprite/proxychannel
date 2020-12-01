@@ -942,7 +942,7 @@ func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) 
 
 		connectResult := make([]byte, 512) // buffer for http response header and body
 		n, err := targetConn.Read(connectResult[:])
-		// Logger.Debugf("connectResult: %s", connectResult)
+		Logger.Debugf("connectResult: %s", connectResult)
 		if err != nil {
 			Logger.Errorf("read error:", err)
 			targetConn.Close()
@@ -958,7 +958,7 @@ func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) 
 			if n == m {
 				ctx.RespLength += int64(n)
 			} else {
-				Logger.Errorf("partial write: %s", ctx.Req.URL.Host)
+				Logger.Errorf("partial write: %s, read: %d, write: %d", ctx.Req.URL.Host, n, m)
 			}
 			transfer(ctx, clientConn, targetConn)
 			targetConn.Close()
