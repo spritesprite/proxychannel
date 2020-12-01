@@ -2,10 +2,12 @@ package proxychannel
 
 import (
 	// "crypto/tls"
+	"fmt"
 	"net"
 	"net/http"
 	"net/url"
 	"sync"
+	"time"
 )
 
 // ResponseWrapper is simply a wrapper for http.Response and error.
@@ -88,6 +90,14 @@ func (c *Context) IsAborted() bool {
 	return c.abort
 }
 
+// ConnPool .
+type ConnPool interface {
+	Get() (net.Conn, error)
+	GetWithTimeout(timeout time.Duration) (net.Conn, error)
+	Close() error
+	Remove(conn net.Conn) error
+}
+
 // Delegate defines some extra manipulation on requests set by user.
 type Delegate interface {
 	GetExtensionManager() *ExtensionManager
@@ -99,6 +109,7 @@ type Delegate interface {
 	ParentProxy(ctx *Context, i interface{}) (*url.URL, error)
 	DuringResponse(ctx *Context, i interface{})
 	Finish(ctx *Context, rw http.ResponseWriter)
+	GetConnPool(ctx *Context) (map[*url.URL]ConnPool, error)
 }
 
 var _ Delegate = &DefaultDelegate{}
@@ -138,3 +149,8 @@ func (h *DefaultDelegate) DuringResponse(ctx *Context, i interface{}) {}
 
 // Finish .
 func (h *DefaultDelegate) Finish(ctx *Context, rw http.ResponseWriter) {}
+
+// GetConnPool .
+func (h *DefaultDelegate) GetConnPool(ctx *Context) (map[*url.URL]ConnPool, error) {
+	return nil, fmt.Errorf("no conn pool available")
+}
