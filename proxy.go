@@ -940,6 +940,14 @@ func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) 
 			continue
 		}
 
+		// err = targetConn.SetReadDeadline(time.Now().Add(5 * time.Second))
+		// if err != nil {
+		// 	// log.Println("SetReadDeadline failed:", err)
+		// 	// do something else, for example create new conn
+		// 	targetConn.Close()
+		// 	continue
+		// }
+
 		connectResult := make([]byte, 512) // buffer for http response header and body
 		n, err := targetConn.Read(connectResult[:])
 		Logger.Debugf("connectResult: %s", connectResult)
@@ -951,7 +959,7 @@ func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) 
 		// "HTTP/X.X 200 OK" takes 15 bytes
 		if string(connectResult[8:15]) == " 200 OK" || !strings.Contains(string(connectResult), "PROXY_CHANNEL_INTERNAL_ERR") {
 			work = true
-			m, err := clientConn.Write(connectResult[:])
+			m, err := clientConn.Write(connectResult[:n])
 			if err != nil {
 				Logger.Errorf("write error:", err)
 			}
