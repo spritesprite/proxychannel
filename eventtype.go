@@ -36,6 +36,8 @@ const (
 	TunnelWriteTargetConnFinish     = "TUNNEL_WRITE_TARGET_CONN_FINISH"
 	TunnelWriteClientConnFinish     = "TUNNEL_WRITE_CLIENT_CONN_FINISH"
 
+	PoolGetParentProxyFail         = "POOL_GET_PARENT_PROXY_FAIL"
+	PoolWriteClientFail            = "POOL_WRITE_CLIENT_FAIL"
 	PoolGetConnPoolFail            = "POOL_GET_CONN_POOL_FAIL"
 	PoolNoAvailableParentProxyFail = "POOL_NO_AVAILABLE_PARENT_PROXY_FAIL"
 
