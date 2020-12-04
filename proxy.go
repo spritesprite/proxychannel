@@ -61,9 +61,10 @@ type TunnelInfo struct {
 
 // ResponseInfo .
 type ResponseInfo struct {
-	Resp *http.Response
-	Err  error
-	Pool ConnPool
+	Resp        *http.Response
+	Err         error
+	ParentProxy string
+	Pool        ConnPool
 }
 
 // ResponseWrapper is simply a wrapper for http.Response and error.
@@ -900,9 +901,10 @@ func (p *Proxy) forwardHTTPWithConnPool(ctx *Context, rw http.ResponseWriter) {
 
 		resp, err := tr.RoundTrip(newReq)
 		p.delegate.BeforeResponse(ctx, &ResponseInfo{
-			Resp: resp,
-			Err:  err,
-			Pool: pool,
+			Resp:        resp,
+			Err:         err,
+			ParentProxy: parentProxyURL.Host,
+			Pool:        pool,
 		})
 		if ctx.abort {
 			ctx.SetPoolContextErrorWithType(nil, BeforeRequestFail)
