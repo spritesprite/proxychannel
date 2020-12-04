@@ -48,7 +48,15 @@ type ProxyError struct {
 type TunnelConn struct {
 	Client net.Conn
 	Target net.Conn
-	Err    error
+}
+
+// TunnelInfo .
+type TunnelInfo struct {
+	Client      net.Conn
+	Target      net.Conn
+	Err         error
+	ParentProxy string
+	Pool        ConnPool
 }
 
 // below are the modes supported.
@@ -877,8 +885,8 @@ func (p *Proxy) forwardHTTPWithConnPool(ctx *Context, rw http.ResponseWriter) {
 		}
 		p.delegate.BeforeResponse(ctx, respWrapper)
 		if ctx.abort {
-			ctx.SetPoolContextErrorWithType(nil, BeforeRequestFail, parentProxyURL.Host)
-			continue
+			ctx.SetPoolContextErrorWithType(nil, BeforeRequestFail)
+			return
 		}
 
 		if err != nil {
@@ -981,6 +989,11 @@ func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) 
 	work := false
 	for parentProxyURL, pool := range poolmap {
 		targetConn, err := pool.GetWithTimeout(defaultTargetConnectTimeout)
+		p.delegate.BeforeResponse(ctx, &TunnelInfo{Client: clientConn, Target: targetConn, Err: err, ParentProxy: parentProxyURL.Host, Pool: pool})
+		if ctx.abort {
+			ctx.SetPoolContextErrorWithType(nil, BeforeRequestFail)
+			return
+		}
 		if err != nil {
 			Logger.Errorf("forwardTunnelWithConnPool %s get connection to %s failed: %s", ctx.Req.URL.Host, parentProxyURL.Host, err)
 			ctx.SetPoolContextErrorWithType(err, PoolGetConnFail, parentProxyURL.Host)
@@ -1002,7 +1015,7 @@ func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) 
 			connectReq.Header.Add("Proxy-Authorization", basicAuth)
 		}
 		err = connectReq.Write(targetConn)
-		p.delegate.DuringResponse(ctx, &TunnelConn{Client: clientConn, Target: targetConn, Err: err}) // targetConn could be closed in this method
+		p.delegate.DuringResponse(ctx, &TunnelInfo{Client: clientConn, Target: targetConn, Err: err, ParentProxy: parentProxyURL.Host, Pool: pool}) // targetConn could be closed in this method
 		if err != nil {
 			Logger.Errorf("forwardTunnelWithConnPool %s make connect request to %s failed: %s", ctx.Req.URL.Host, parentProxyURL.Host, err)
 			ctx.SetPoolContextErrorWithType(err, PoolWriteTargetConnFail, parentProxyURL.Host)
