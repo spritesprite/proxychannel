@@ -37,9 +37,12 @@ const (
 	TunnelWriteClientConnFinish     = "TUNNEL_WRITE_CLIENT_CONN_FINISH"
 
 	PoolGetParentProxyFail         = "POOL_GET_PARENT_PROXY_FAIL"
+	PoolReadRemoteFail             = "POOL_READ_REMOTE_FAIL"
 	PoolWriteClientFail            = "POOL_WRITE_CLIENT_FAIL"
 	PoolGetConnPoolFail            = "POOL_GET_CONN_POOL_FAIL"
 	PoolNoAvailableParentProxyFail = "POOL_NO_AVAILABLE_PARENT_PROXY_FAIL"
+	PoolRoundTripFail              = "POOL_ROUND_TRIP_FAIL"
+	PoolParentProxyFail            = "POOL_PARENT_PROXY_FAIL"
 
 	HTTPWebsocketDailFail                    = "HTTP_WEBSOCKET_DAIL_FAIL"
 	HTTPWebsocketHijackFail                  = "HTTP_WEBSOCKET_HIJACK_FAIL"

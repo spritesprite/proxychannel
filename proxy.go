@@ -695,12 +695,18 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 }
 
 // transfer does two-way forwarding through connections
-func transfer(ctx *Context, clientConn net.Conn, targetConn net.Conn) {
+func transfer(ctx *Context, clientConn net.Conn, targetConn net.Conn, parentProxy ...string) {
 	go func() {
 		written1, err1 := io.Copy(clientConn, targetConn)
 		if err1 != nil {
 			Logger.Errorf("io.Copy write clientConn failed: %s", err1)
-			ctx.SetContextErrorWithType(err1, TunnelWriteClientConnFinish)
+			if len(parentProxy) <= 1 {
+				if len(parentProxy) == 0 {
+					ctx.SetContextErrorWithType(err1, TunnelWriteClientConnFinish)
+				} else {
+					ctx.SetPoolContextErrorWithType(err1, TunnelWriteClientConnFinish, parentProxy[0])
+				}
+			}
 		}
 		ctx.RespLength += written1
 		clientConn.Close()
@@ -710,7 +716,13 @@ func transfer(ctx *Context, clientConn net.Conn, targetConn net.Conn) {
 	written2, err2 := io.Copy(targetConn, clientConn)
 	if err2 != nil {
 		Logger.Errorf("io.Copy write targetConn failed: %s", err2)
-		ctx.SetContextErrorWithType(err2, TunnelWriteTargetConnFinish)
+		if len(parentProxy) <= 1 {
+			if len(parentProxy) == 0 {
+				ctx.SetContextErrorWithType(err2, TunnelWriteTargetConnFinish)
+			} else {
+				ctx.SetPoolContextErrorWithType(err2, TunnelWriteTargetConnFinish, parentProxy[0])
+			}
+		}
 	}
 	ctx.ReqLength += written2
 	targetConn.Close()
@@ -812,17 +824,18 @@ func (p *Proxy) forwardHTTPWithConnPool(ctx *Context, rw http.ResponseWriter) {
 		}
 	}
 
-	poolmap, err := p.delegate.GetConnPool(ctx) // only parentProxyURL is provided, the pool is not.
+	poolmap, err := p.delegate.GetConnPool(ctx)
 	if err != nil {
 		Logger.Errorf("forwardHTTPWithConnPool %s GetConnPool failed: %s", ctx.Req.URL.Host, err)
 		rw.WriteHeader(http.StatusBadGateway)
 		WriteProxyErrorToResponseBody(ctx, rw, http.StatusBadGateway, fmt.Sprintf("forwardHTTPWithConnPool %s GetConnPool failed: %s", ctx.Req.URL.Host, err), "")
-		ctx.SetContextErrorWithType(err, PoolGetParentProxyFail)
+		ctx.SetPoolContextErrorWithType(err, PoolGetParentProxyFail)
 		return
 	}
 
 	work := false
 	for parentProxyURL := range poolmap {
+		// we care only about parentProxyURL, the pool is omitted.
 		type CtxKey int
 		var pkey CtxKey = 0
 		fakeCtx := context.WithValue(newReq.Context(), pkey, parentProxyURL)
@@ -863,12 +876,13 @@ func (p *Proxy) forwardHTTPWithConnPool(ctx *Context, rw http.ResponseWriter) {
 		}
 		p.delegate.BeforeResponse(ctx, respWrapper)
 		if ctx.abort {
-			ctx.SetContextErrType(BeforeResponseFail)
+			ctx.SetPoolContextErrorWithType(nil, BeforeRequestFail, parentProxyURL.Host)
 			continue
 		}
 
 		if err != nil {
 			Logger.Errorf("forwardHTTPWithConnPool %s RoundTrip failed: %s", ctx.Req.URL, err)
+			ctx.SetPoolContextErrorWithType(err, PoolRoundTripFail, parentProxyURL.Host)
 			continue
 		}
 		removeConnectionHeaders(resp.Header)
@@ -888,11 +902,12 @@ func (p *Proxy) forwardHTTPWithConnPool(ctx *Context, rw http.ResponseWriter) {
 			Logger.Debugf("forwardHTTPWithConnPool %s ReadFull Response is exactly 512 bytes or smaller", ctx.Req.URL)
 		default:
 			Logger.Errorf("forwardHTTPWithConnPool %s ReadFull failed: %s", ctx.Req.URL, err)
+			ctx.SetPoolContextErrorWithType(err, PoolReadRemoteFail, parentProxyURL.Host)
 			resp.Body.Close()
 			continue
 		}
 		buf = buf[:n]
-		Logger.Debugf("forwardTunnelWithConnPool %s buf: %s", ctx.Req.URL, buf)
+		Logger.Debugf("forwardHTTPWithConnPool %s buf: %s", ctx.Req.URL, buf)
 
 		if resp.StatusCode == http.StatusOK || !strings.Contains(string(buf), "PROXY_CHANNEL_INTERNAL_ERR") {
 			// No need to retry, just return what we get to rw.
@@ -904,10 +919,11 @@ func (p *Proxy) forwardHTTPWithConnPool(ctx *Context, rw http.ResponseWriter) {
 			if err != nil || n != m {
 				if err != nil {
 					Logger.Errorf("forwardHTTPWithConnPool %s first part write client failed:", ctx.Req.URL, err)
+					ctx.SetPoolContextErrorWithType(err, PoolWriteClientFail, parentProxyURL.Host)
 				} else {
 					Logger.Errorf("forwardHTTPWithConnPool %s partial write, read: %d, write: %d", ctx.Req.URL, n, m)
+					ctx.SetPoolContextErrorWithType(fmt.Errorf("forwardHTTPWithConnPool %s partial write, read: %d, write: %d", ctx.Req.URL, n, m), PoolWriteClientFail, parentProxyURL.Host)
 				}
-				ctx.SetContextErrorWithType(err, PoolWriteClientFail)
 				resp.Body.Close()
 				break
 			}
@@ -915,7 +931,7 @@ func (p *Proxy) forwardHTTPWithConnPool(ctx *Context, rw http.ResponseWriter) {
 			ctx.RespLength += written
 			if err != nil {
 				Logger.Errorf("forwardHTTPWithConnPool %s write client failed: %s", ctx.Req.URL, err)
-				ctx.SetContextErrorWithType(err, PoolWriteClientFail)
+				ctx.SetPoolContextErrorWithType(err, PoolWriteClientFail, parentProxyURL.Host)
 				resp.Body.Close()
 				break
 			}
@@ -923,6 +939,13 @@ func (p *Proxy) forwardHTTPWithConnPool(ctx *Context, rw http.ResponseWriter) {
 			break
 		}
 		// Retry
+		m := make(map[string]string)
+		err = json.Unmarshal(buf, &m)
+		if err != nil {
+			Logger.Errorf("forwardHTTPWithConnPool %s Unmarshal buf failed: %s", ctx.Req.URL, err)
+		} else {
+			ctx.SetPoolContextErrorWithType(fmt.Errorf("errCode:%s errMsg:%s", m["errCode"], m["errMsg"]), PoolParentProxyFail, parentProxyURL.Host)
+		}
 		resp.Body.Close()
 	}
 	if !work {
@@ -930,77 +953,8 @@ func (p *Proxy) forwardHTTPWithConnPool(ctx *Context, rw http.ResponseWriter) {
 		Logger.Errorf("forwardHTTPWithConnPool %s cannot find working parent proxy to forward request", ctx.Req.URL.Host)
 		rw.WriteHeader(http.StatusTooManyRequests)
 		WriteProxyErrorToResponseBody(ctx, rw, http.StatusTooManyRequests, fmt.Sprintf("forwardHTTPWithConnPool %s cannot find working parent proxy to forward request", ctx.Req.URL.Host), tooManyRequests)
-		ctx.SetContextErrorWithType(err, PoolNoAvailableParentProxyFail)
+		ctx.SetPoolContextErrorWithType(nil, PoolNoAvailableParentProxyFail)
 	}
-}
-
-func (p *Proxy) forwardHTTPSWithConnPool(ctx *Context, rw http.ResponseWriter) {
-	Logger.Debugf("forwardHTTPSWithConnPool scheme:%s host:%s", ctx.Req.URL.Scheme, ctx.Req.Host)
-	tlsConfig, err := p.cert.GenerateTLSConfig(ctx.Req.URL.Host)
-	if err != nil {
-		Logger.Errorf("forwardHTTPS %s generate tlsConfig failed: %s", ctx.Req.URL.Host, err)
-		rw.WriteHeader(http.StatusBadGateway)
-		WriteProxyErrorToResponseBody(ctx, rw, http.StatusBadGateway, fmt.Sprintf("forwardHTTPS %s generate tlsConfig failed: %s", ctx.Req.URL, err), "")
-		ctx.SetContextErrorWithType(err, HTTPSGenerateTLSConfigFail)
-		return
-	}
-	clientConn, err := hijacker(rw)
-	if err != nil {
-		Logger.Errorf("forwardHTTPS hijack client connection failed: %s", err)
-		rw.WriteHeader(http.StatusBadGateway)
-		WriteProxyErrorToResponseBody(ctx, rw, http.StatusBadGateway, fmt.Sprintf("forwardHTTPS hijack client connection failed: %s", err), "")
-		ctx.SetContextErrorWithType(err, HTTPSHijackClientConnFail)
-		return
-	}
-	ctx.Hijack = true
-	defer clientConn.Close()
-	_, err = clientConn.Write(tunnelEstablishedResponseLine)
-	if err != nil {
-		Logger.Errorf("forwardHTTPS %s write message failed: %s", ctx.Req.URL.Host, err)
-		ctx.SetContextErrorWithType(err, HTTPSWriteEstRespFail)
-		return
-	}
-	// tlsConfig.NextProtos = []string{"h2", "http/1.1", "http/1.0"}
-	tlsClientConn := tls.Server(clientConn, tlsConfig)
-	// tlsClientConn.SetDeadline(time.Now().Add(defaultClientReadWriteTimeout))
-	defer tlsClientConn.Close()
-	if err := tlsClientConn.Handshake(); err != nil {
-		Logger.Errorf("forwardHTTPS %s handshake failed: %s", ctx.Req.URL.Host, err)
-		ctx.SetContextErrorWithType(err, HTTPSTLSClientConnHandshakeFail)
-		return
-	}
-	buf := bufio.NewReader(tlsClientConn)
-	tlsReq, err := http.ReadRequest(buf)
-	if err != nil {
-		if err != io.EOF {
-			Logger.Errorf("forwardHTTPS %s read client request failed: %s", ctx.Req.URL.Host, err)
-			ctx.SetContextErrorWithType(err, HTTPSReadReqFromBufFail)
-		}
-		return
-	}
-	tlsReq.RemoteAddr = ctx.Req.RemoteAddr
-	tlsReq.URL.Scheme = "https"
-	tlsReq.URL.Host = tlsReq.Host
-
-	ctx.Req = tlsReq
-	p.DoRequest(ctx, rw, func(resp *http.Response, err error) {
-		if err != nil {
-			Logger.Errorf("forwardHTTPS %s forward request failed: %s", ctx.Req.URL.Host, err)
-			WriteProxyErrorToResponseBody(ctx, tlsClientConn, http.StatusBadGateway, fmt.Sprintf("forwardHTTPS %s forward request failed: %s", ctx.Req.URL.Host, err), badGateway)
-			ctx.SetContextErrorWithType(err, HTTPSDoRequestFail)
-			return
-		}
-		defer resp.Body.Close()
-		p.delegate.DuringResponse(ctx, resp) // resp could be closed in this method
-
-		lengthWriter := &WriterWithLength{tlsClientConn, 1, 0}
-		err = resp.Write(lengthWriter)
-		if err != nil {
-			Logger.Errorf("forwardHTTPS %s write response to client connection failed: %s", ctx.Req.URL.Host, err)
-			ctx.SetContextErrorWithType(err, HTTPSWriteRespFail)
-		}
-		ctx.RespLength += int64(lengthWriter.Length())
-	}, tlsClientConn)
 }
 
 func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) {
@@ -1010,7 +964,7 @@ func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) 
 		Logger.Errorf("forwardTunnelWithConnPool hijack client connection failed: %s", err)
 		rw.WriteHeader(http.StatusBadGateway)
 		WriteProxyErrorToResponseBody(ctx, rw, http.StatusBadGateway, fmt.Sprintf("forwardTunnelWithConnPool hijack client connection failed: %s", err), "")
-		ctx.SetContextErrorWithType(err, TunnelHijackClientConnFail)
+		ctx.SetPoolContextErrorWithType(err, TunnelHijackClientConnFail)
 		return
 	}
 	ctx.Hijack = true
@@ -1020,12 +974,12 @@ func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) 
 	if err != nil {
 		Logger.Errorf("forwardTunnelWithConnPool %s GetConnPool failed: %s", ctx.Req.URL.Host, err)
 		WriteProxyErrorToResponseBody(ctx, clientConn, http.StatusBadGateway, fmt.Sprintf("forwardTunnelWithConnPool %s GetConnPool failed: %s", ctx.Req.URL.Host, err), badGateway)
-		ctx.SetContextErrorWithType(err, PoolGetConnPoolFail)
+		ctx.SetPoolContextErrorWithType(err, PoolGetConnPoolFail)
 		return
 	}
 	work := false
 	for parentProxyURL, pool := range poolmap {
-		targetConn, err := pool.Get()
+		targetConn, err := pool.GetWithTimeout(defaultTargetConnectTimeout)
 		if err != nil {
 			Logger.Errorf("forwardTunnelWithConnPool %s get connection to %s failed: %s", ctx.Req.URL.Host, parentProxyURL.Host, err)
 			continue
@@ -1077,24 +1031,101 @@ func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) 
 			if err != nil || n != m {
 				if err != nil {
 					Logger.Errorf("forwardTunnelWithConnPool %s first part write client failed:", ctx.Req.URL.Host, err)
+					ctx.SetPoolContextErrorWithType(err, PoolWriteClientFail, parentProxyURL.Host)
 				} else {
 					Logger.Errorf("forwardTunnelWithConnPool %s partial write, read: %d, write: %d", ctx.Req.URL.Host, n, m)
+					ctx.SetPoolContextErrorWithType(fmt.Errorf("forwardTunnelWithConnPool %s partial write, read: %d, write: %d", ctx.Req.URL.Host, n, m), PoolWriteClientFail, parentProxyURL.Host)
 				}
-				ctx.SetContextErrorWithType(err, PoolWriteClientFail)
 				targetConn.Close()
 				break
 			}
-			transfer(ctx, clientConn, targetConn)
+			transfer(ctx, clientConn, targetConn, parentProxyURL.Host)
 			targetConn.Close()
 			break
 		}
 		// Retry
+		m := make(map[string]string)
+		err = json.Unmarshal(connectResult[15:], &m)
+		if err != nil {
+			Logger.Errorf("forwardTunnelWithConnPool %s Unmarshal connectResult failed: %s", ctx.Req.URL.Host, err)
+		} else {
+			ctx.SetPoolContextErrorWithType(fmt.Errorf("errCode:%s errMsg:%s", m["errCode"], m["errMsg"]), PoolParentProxyFail, parentProxyURL.Host)
+		}
 		targetConn.Close()
 	}
 	if !work {
 		// No parentProxyURL works, just return http.StatusTooManyRequests
 		Logger.Errorf("forwardTunnelWithConnPool %s cannot find working parent proxy to forward request", ctx.Req.URL.Host)
 		WriteProxyErrorToResponseBody(ctx, clientConn, http.StatusTooManyRequests, fmt.Sprintf("forwardTunnelWithConnPool %s cannot find working parent proxy to forward request", ctx.Req.URL.Host), tooManyRequests)
-		ctx.SetContextErrorWithType(err, PoolNoAvailableParentProxyFail)
+		ctx.SetPoolContextErrorWithType(nil, PoolNoAvailableParentProxyFail)
 	}
 }
+
+// func (p *Proxy) forwardHTTPSWithConnPool(ctx *Context, rw http.ResponseWriter) {
+// 	Logger.Debugf("forwardHTTPSWithConnPool scheme:%s host:%s", ctx.Req.URL.Scheme, ctx.Req.Host)
+// 	tlsConfig, err := p.cert.GenerateTLSConfig(ctx.Req.URL.Host)
+// 	if err != nil {
+// 		Logger.Errorf("forwardHTTPS %s generate tlsConfig failed: %s", ctx.Req.URL.Host, err)
+// 		rw.WriteHeader(http.StatusBadGateway)
+// 		WriteProxyErrorToResponseBody(ctx, rw, http.StatusBadGateway, fmt.Sprintf("forwardHTTPS %s generate tlsConfig failed: %s", ctx.Req.URL, err), "")
+// 		ctx.SetContextErrorWithType(err, HTTPSGenerateTLSConfigFail)
+// 		return
+// 	}
+// 	clientConn, err := hijacker(rw)
+// 	if err != nil {
+// 		Logger.Errorf("forwardHTTPS hijack client connection failed: %s", err)
+// 		rw.WriteHeader(http.StatusBadGateway)
+// 		WriteProxyErrorToResponseBody(ctx, rw, http.StatusBadGateway, fmt.Sprintf("forwardHTTPS hijack client connection failed: %s", err), "")
+// 		ctx.SetContextErrorWithType(err, HTTPSHijackClientConnFail)
+// 		return
+// 	}
+// 	ctx.Hijack = true
+// 	defer clientConn.Close()
+// 	_, err = clientConn.Write(tunnelEstablishedResponseLine)
+// 	if err != nil {
+// 		Logger.Errorf("forwardHTTPS %s write message failed: %s", ctx.Req.URL.Host, err)
+// 		ctx.SetContextErrorWithType(err, HTTPSWriteEstRespFail)
+// 		return
+// 	}
+// 	// tlsConfig.NextProtos = []string{"h2", "http/1.1", "http/1.0"}
+// 	tlsClientConn := tls.Server(clientConn, tlsConfig)
+// 	// tlsClientConn.SetDeadline(time.Now().Add(defaultClientReadWriteTimeout))
+// 	defer tlsClientConn.Close()
+// 	if err := tlsClientConn.Handshake(); err != nil {
+// 		Logger.Errorf("forwardHTTPS %s handshake failed: %s", ctx.Req.URL.Host, err)
+// 		ctx.SetContextErrorWithType(err, HTTPSTLSClientConnHandshakeFail)
+// 		return
+// 	}
+// 	buf := bufio.NewReader(tlsClientConn)
+// 	tlsReq, err := http.ReadRequest(buf)
+// 	if err != nil {
+// 		if err != io.EOF {
+// 			Logger.Errorf("forwardHTTPS %s read client request failed: %s", ctx.Req.URL.Host, err)
+// 			ctx.SetContextErrorWithType(err, HTTPSReadReqFromBufFail)
+// 		}
+// 		return
+// 	}
+// 	tlsReq.RemoteAddr = ctx.Req.RemoteAddr
+// 	tlsReq.URL.Scheme = "https"
+// 	tlsReq.URL.Host = tlsReq.Host
+
+// 	ctx.Req = tlsReq
+// 	p.DoRequest(ctx, rw, func(resp *http.Response, err error) {
+// 		if err != nil {
+// 			Logger.Errorf("forwardHTTPS %s forward request failed: %s", ctx.Req.URL.Host, err)
+// 			WriteProxyErrorToResponseBody(ctx, tlsClientConn, http.StatusBadGateway, fmt.Sprintf("forwardHTTPS %s forward request failed: %s", ctx.Req.URL.Host, err), badGateway)
+// 			ctx.SetContextErrorWithType(err, HTTPSDoRequestFail)
+// 			return
+// 		}
+// 		defer resp.Body.Close()
+// 		p.delegate.DuringResponse(ctx, resp) // resp could be closed in this method
+
+// 		lengthWriter := &WriterWithLength{tlsClientConn, 1, 0}
+// 		err = resp.Write(lengthWriter)
+// 		if err != nil {
+// 			Logger.Errorf("forwardHTTPS %s write response to client connection failed: %s", ctx.Req.URL.Host, err)
+// 			ctx.SetContextErrorWithType(err, HTTPSWriteRespFail)
+// 		}
+// 		ctx.RespLength += int64(lengthWriter.Length())
+// 	}, tlsClientConn)
+// }
