@@ -48,6 +48,7 @@ type ProxyError struct {
 type TunnelConn struct {
 	Client net.Conn
 	Target net.Conn
+	Err    error
 }
 
 // below are the modes supported.
@@ -982,10 +983,10 @@ func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) 
 		targetConn, err := pool.GetWithTimeout(defaultTargetConnectTimeout)
 		if err != nil {
 			Logger.Errorf("forwardTunnelWithConnPool %s get connection to %s failed: %s", ctx.Req.URL.Host, parentProxyURL.Host, err)
+			ctx.SetPoolContextErrorWithType(err, PoolGetConnFail, parentProxyURL.Host)
 			continue
 		}
 		// defer targetConn.Close is not used as it's in a loop
-		p.delegate.DuringResponse(ctx, &TunnelConn{Client: clientConn, Target: targetConn}) // targetConn could be closed in this method
 
 		connectReq := &http.Request{
 			Method: "CONNECT",
@@ -1001,8 +1002,10 @@ func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) 
 			connectReq.Header.Add("Proxy-Authorization", basicAuth)
 		}
 		err = connectReq.Write(targetConn)
+		p.delegate.DuringResponse(ctx, &TunnelConn{Client: clientConn, Target: targetConn, Err: err}) // targetConn could be closed in this method
 		if err != nil {
 			Logger.Errorf("forwardTunnelWithConnPool %s make connect request to %s failed: %s", ctx.Req.URL.Host, parentProxyURL.Host, err)
+			ctx.SetPoolContextErrorWithType(err, PoolWriteTargetConnFail, parentProxyURL.Host)
 			targetConn.Close()
 			continue
 		}
@@ -1020,6 +1023,7 @@ func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) 
 		// Logger.Debugf("forwardTunnelWithConnPool %s connectResult: %s", ctx.Req.URL.Host, connectResult)
 		if err != nil {
 			Logger.Errorf("forwardTunnelWithConnPool %s read error: %s", ctx.Req.URL.Host, err)
+			ctx.SetPoolContextErrorWithType(err, PoolReadTargetFail, parentProxyURL.Host)
 			targetConn.Close()
 			continue
 		}

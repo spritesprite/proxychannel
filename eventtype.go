@@ -44,6 +44,9 @@ const (
 	PoolRoundTripFail              = "POOL_ROUND_TRIP_FAIL"
 	PoolParentProxyFail            = "POOL_PARENT_PROXY_FAIL"
 	PoolHTTPRegularFinish          = "POOL_HTTP_REGULAR_FINISH"
+	PoolGetConnFail                = "POOL_GET_CONN_FAIL"
+	PoolWriteTargetConnFail        = "POOL_WRITE_TARGET_CONN_FAIL"
+	PoolReadTargetFail             = "POOL_READ_TARGET_FAIL"
 
 	HTTPWebsocketDailFail                    = "HTTP_WEBSOCKET_DAIL_FAIL"
 	HTTPWebsocketHijackFail                  = "HTTP_WEBSOCKET_HIJACK_FAIL"
