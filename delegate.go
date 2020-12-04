@@ -10,18 +10,6 @@ import (
 	"time"
 )
 
-// ResponseWrapper is simply a wrapper for http.Response and error.
-type ResponseWrapper struct {
-	Resp *http.Response
-	Err  error
-}
-
-// ConnWrapper .
-type ConnWrapper struct {
-	Conn net.Conn
-	Err  error
-}
-
 // Context stores what methods of Delegate would need as input.
 type Context struct {
 	Req        *http.Request

@@ -59,6 +59,25 @@ type TunnelInfo struct {
 	Pool        ConnPool
 }
 
+// ResponseInfo .
+type ResponseInfo struct {
+	Resp *http.Response
+	Err  error
+	Pool ConnPool
+}
+
+// ResponseWrapper is simply a wrapper for http.Response and error.
+type ResponseWrapper struct {
+	Resp *http.Response
+	Err  error
+}
+
+// ConnWrapper .
+type ConnWrapper struct {
+	Conn net.Conn
+	Err  error
+}
+
 // below are the modes supported.
 const (
 	NormalMode = iota
@@ -843,8 +862,10 @@ func (p *Proxy) forwardHTTPWithConnPool(ctx *Context, rw http.ResponseWriter) {
 	}
 
 	work := false
-	for parentProxyURL := range poolmap {
-		// we care only about parentProxyURL, the pool is omitted.
+	for parentProxyURL, pool := range poolmap {
+		// pool is not actully used to connect parent proxy,
+		// it's just used to show whether a connection to it is performing well.
+		// I know it's weird, and it will be fixed in the future.
 		type CtxKey int
 		var pkey CtxKey = 0
 		fakeCtx := context.WithValue(newReq.Context(), pkey, parentProxyURL)
@@ -878,12 +899,11 @@ func (p *Proxy) forwardHTTPWithConnPool(ctx *Context, rw http.ResponseWriter) {
 		}
 
 		resp, err := tr.RoundTrip(newReq)
-
-		respWrapper := &ResponseWrapper{
+		p.delegate.BeforeResponse(ctx, &ResponseInfo{
 			Resp: resp,
 			Err:  err,
-		}
-		p.delegate.BeforeResponse(ctx, respWrapper)
+			Pool: pool,
+		})
 		if ctx.abort {
 			ctx.SetPoolContextErrorWithType(nil, BeforeRequestFail)
 			return
@@ -989,7 +1009,13 @@ func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) 
 	work := false
 	for parentProxyURL, pool := range poolmap {
 		targetConn, err := pool.GetWithTimeout(defaultTargetConnectTimeout)
-		p.delegate.BeforeResponse(ctx, &TunnelInfo{Client: clientConn, Target: targetConn, Err: err, ParentProxy: parentProxyURL.Host, Pool: pool})
+		p.delegate.BeforeResponse(ctx, &TunnelInfo{
+			Client:      clientConn,
+			Target:      targetConn,
+			Err:         err,
+			ParentProxy: parentProxyURL.Host,
+			Pool:        pool,
+		})
 		if ctx.abort {
 			ctx.SetPoolContextErrorWithType(nil, BeforeRequestFail)
 			return
