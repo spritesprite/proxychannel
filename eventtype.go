@@ -43,6 +43,7 @@ const (
 	PoolNoAvailableParentProxyFail = "POOL_NO_AVAILABLE_PARENT_PROXY_FAIL"
 	PoolRoundTripFail              = "POOL_ROUND_TRIP_FAIL"
 	PoolParentProxyFail            = "POOL_PARENT_PROXY_FAIL"
+	PoolHTTPRegularFinish          = "POOL_HTTP_REGULAR_FINISH"
 
 	HTTPWebsocketDailFail                    = "HTTP_WEBSOCKET_DAIL_FAIL"
 	HTTPWebsocketHijackFail                  = "HTTP_WEBSOCKET_HIJACK_FAIL"

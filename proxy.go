@@ -935,6 +935,7 @@ func (p *Proxy) forwardHTTPWithConnPool(ctx *Context, rw http.ResponseWriter) {
 				resp.Body.Close()
 				break
 			}
+			ctx.SetPoolContextErrorWithType(fmt.Errorf("HTTP Regular finish"), PoolHTTPRegularFinish, parentProxyURL.Host)
 			resp.Body.Close()
 			break
 		}
