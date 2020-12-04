@@ -942,9 +942,9 @@ func (p *Proxy) forwardHTTPWithConnPool(ctx *Context, rw http.ResponseWriter) {
 		m := make(map[string]interface{})
 		err = json.Unmarshal(buf, &m)
 		if err != nil {
-			Logger.Errorf("forwardHTTPWithConnPool %s Unmarshal buf failed: %s", ctx.Req.URL, err)
+			Logger.Errorf("forwardHTTPWithConnPool %s Unmarshal resp body failed: %s", ctx.Req.URL, err)
 		} else {
-			ctx.SetPoolContextErrorWithType(fmt.Errorf("errCode:%d errMsg:%s", m["errCode"].(int), m["errMsg"].(string)), PoolParentProxyFail, parentProxyURL.Host)
+			ctx.SetPoolContextErrorWithType(fmt.Errorf("errCode:%f errMsg:%s", m["errCode"].(float64), m["errMsg"].(string)), PoolParentProxyFail, parentProxyURL.Host)
 		}
 		resp.Body.Close()
 	}
@@ -1044,14 +1044,14 @@ func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) 
 			break
 		}
 		// Retry
-		m := make(map[string]interface{})
+		mbuf := make(map[string]interface{})
 		i := strings.Index(string(connectResult), "{")
-		Logger.Debugf("forwardTunnelWithConnPool %s connectResult 2 : %s", ctx.Req.URL.Host, connectResult[i:])
-		err = json.Unmarshal(connectResult[i:], &m)
+		Logger.Debugf("forwardTunnelWithConnPool %s resp body: %s", ctx.Req.URL.Host, connectResult[i:])
+		err = json.Unmarshal(connectResult[i:n], &mbuf)
 		if err != nil {
 			Logger.Errorf("forwardTunnelWithConnPool %s Unmarshal connectResult failed: %s", ctx.Req.URL.Host, err)
 		} else {
-			ctx.SetPoolContextErrorWithType(fmt.Errorf("errCode:%d errMsg:%s", m["errCode"].(int), m["errMsg"].(string)), PoolParentProxyFail, parentProxyURL.Host)
+			ctx.SetPoolContextErrorWithType(fmt.Errorf("errCode:%f errMsg:%s", mbuf["errCode"].(float64), mbuf["errMsg"].(string)), PoolParentProxyFail, parentProxyURL.Host)
 		}
 		targetConn.Close()
 	}
