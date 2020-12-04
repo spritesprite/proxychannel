@@ -66,12 +66,20 @@ func (c *Context) SetPoolContextErrorWithType(err error, errType string, parentP
 	if len(parentProxy) == 0 {
 		c.ErrType = errType
 		if err != nil {
-			c.Err = fmt.Errorf("%s | %s", err, c.Err)
+			if c.Err != nil {
+				c.Err = fmt.Errorf("%s | %s", err, c.Err)
+			} else {
+				c.Err = fmt.Errorf("%s", err)
+			}
 		}
 	}
 	p := parentProxy[0]
 	if err != nil {
-		c.Err = fmt.Errorf("(%s) [%s] %s | %s", p, errType, err, c.Err)
+		if c.Err != nil {
+			c.Err = fmt.Errorf("(%s) [%s] %s | %s", p, errType, err, c.Err)
+		} else {
+			c.Err = fmt.Errorf("(%s) [%s] %s", p, errType, err)
+		}
 	}
 }
 

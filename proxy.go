@@ -944,7 +944,7 @@ func (p *Proxy) forwardHTTPWithConnPool(ctx *Context, rw http.ResponseWriter) {
 		if err != nil {
 			Logger.Errorf("forwardHTTPWithConnPool %s Unmarshal resp body failed: %s", ctx.Req.URL, err)
 		} else {
-			ctx.SetPoolContextErrorWithType(fmt.Errorf("errCode:%f errMsg:%s", m["errCode"].(float64), m["errMsg"].(string)), PoolParentProxyFail, parentProxyURL.Host)
+			ctx.SetPoolContextErrorWithType(fmt.Errorf("errCode:%d errMsg:%s", int(m["errCode"].(float64)), m["errMsg"].(string)), PoolParentProxyFail, parentProxyURL.Host)
 		}
 		resp.Body.Close()
 	}
@@ -1046,12 +1046,12 @@ func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) 
 		// Retry
 		mbuf := make(map[string]interface{})
 		i := strings.Index(string(connectResult), "{")
-		Logger.Debugf("forwardTunnelWithConnPool %s resp body: %s", ctx.Req.URL.Host, connectResult[i:])
+		Logger.Debugf("forwardTunnelWithConnPool %s resp body: %s", ctx.Req.URL.Host, connectResult[i:n])
 		err = json.Unmarshal(connectResult[i:n], &mbuf)
 		if err != nil {
 			Logger.Errorf("forwardTunnelWithConnPool %s Unmarshal connectResult failed: %s", ctx.Req.URL.Host, err)
 		} else {
-			ctx.SetPoolContextErrorWithType(fmt.Errorf("errCode:%f errMsg:%s", mbuf["errCode"].(float64), mbuf["errMsg"].(string)), PoolParentProxyFail, parentProxyURL.Host)
+			ctx.SetPoolContextErrorWithType(fmt.Errorf("errCode:%d errMsg:%s", int(mbuf["errCode"].(float64)), mbuf["errMsg"].(string)), PoolParentProxyFail, parentProxyURL.Host)
 		}
 		targetConn.Close()
 	}
