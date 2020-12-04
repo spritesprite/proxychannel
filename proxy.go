@@ -907,8 +907,7 @@ func (p *Proxy) forwardHTTPWithConnPool(ctx *Context, rw http.ResponseWriter) {
 			continue
 		}
 		buf = buf[:n]
-		Logger.Debugf("forwardHTTPWithConnPool %s buf: %s", ctx.Req.URL, buf)
-
+		// Logger.Debugf("forwardHTTPWithConnPool %s buf: %s", ctx.Req.URL, buf)
 		if resp.StatusCode == http.StatusOK || !strings.Contains(string(buf), "PROXY_CHANNEL_INTERNAL_ERR") {
 			// No need to retry, just return what we get to rw.
 			work = true
@@ -943,7 +942,7 @@ func (p *Proxy) forwardHTTPWithConnPool(ctx *Context, rw http.ResponseWriter) {
 		m := make(map[string]interface{})
 		err = json.Unmarshal(buf, &m)
 		if err != nil {
-			Logger.Errorf("forwardHTTPWithConnPool %s Unmarshal resp body failed: %s", ctx.Req.URL, err)
+			Logger.Errorf("forwardHTTPWithConnPool %s Unmarshal resp body failed, body: %s, err: %s", ctx.Req.URL, buf, err)
 		} else {
 			ctx.SetPoolContextErrorWithType(fmt.Errorf("errCode:%d errMsg:%s", int(m["errCode"].(float64)), m["errMsg"].(string)), PoolParentProxyFail, parentProxyURL.Host)
 		}
@@ -1018,7 +1017,7 @@ func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) 
 
 		connectResult := make([]byte, 512) // buffer for http response header and body
 		n, err := targetConn.Read(connectResult[:])
-		Logger.Debugf("forwardTunnelWithConnPool %s connectResult: %s", ctx.Req.URL.Host, connectResult)
+		// Logger.Debugf("forwardTunnelWithConnPool %s connectResult: %s", ctx.Req.URL.Host, connectResult)
 		if err != nil {
 			Logger.Errorf("forwardTunnelWithConnPool %s read error: %s", ctx.Req.URL.Host, err)
 			targetConn.Close()
@@ -1047,10 +1046,9 @@ func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) 
 		// Retry
 		mbuf := make(map[string]interface{})
 		i := strings.Index(string(connectResult), "{")
-		Logger.Debugf("forwardTunnelWithConnPool %s resp body: %s", ctx.Req.URL.Host, connectResult[i:n])
 		err = json.Unmarshal(connectResult[i:n], &mbuf)
 		if err != nil {
-			Logger.Errorf("forwardTunnelWithConnPool %s Unmarshal connectResult failed: %s", ctx.Req.URL.Host, err)
+			Logger.Errorf("forwardTunnelWithConnPool %s Unmarshal connectResult failed, body: %s, err: %s", ctx.Req.URL.Host, connectResult[i:n], err)
 		} else {
 			ctx.SetPoolContextErrorWithType(fmt.Errorf("errCode:%d errMsg:%s", int(mbuf["errCode"].(float64)), mbuf["errMsg"].(string)), PoolParentProxyFail, parentProxyURL.Host)
 		}
