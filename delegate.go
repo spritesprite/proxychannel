@@ -60,10 +60,8 @@ func (c *Context) SetPoolContextErrorWithType(err error, errType string, parentP
 	c.Lock.Lock()
 	defer c.Lock.Unlock()
 
-	if len(parentProxy) > 1 {
-		return
-	}
-	if len(parentProxy) == 0 {
+	switch len(parentProxy) {
+	case 0:
 		c.ErrType = errType
 		if err != nil {
 			if c.Err != nil {
@@ -72,14 +70,17 @@ func (c *Context) SetPoolContextErrorWithType(err error, errType string, parentP
 				c.Err = fmt.Errorf("%s", err)
 			}
 		}
-	}
-	p := parentProxy[0]
-	if err != nil {
-		if c.Err != nil {
-			c.Err = fmt.Errorf("(%s) [%s] %s | %s", p, errType, err, c.Err)
-		} else {
-			c.Err = fmt.Errorf("(%s) [%s] %s", p, errType, err)
+	case 1:
+		p := parentProxy[0]
+		if err != nil {
+			if c.Err != nil {
+				c.Err = fmt.Errorf("(%s) [%s] %s | %s", p, errType, err, c.Err)
+			} else {
+				c.Err = fmt.Errorf("(%s) [%s] %s", p, errType, err)
+			}
 		}
+	default:
+		return
 	}
 }
 
