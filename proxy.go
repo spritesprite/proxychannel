@@ -1045,7 +1045,8 @@ func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) 
 		}
 		// Retry
 		m := make(map[string]string)
-		err = json.Unmarshal(connectResult[15:], &m)
+		i := strings.Index(string(connectResult), "{")
+		err = json.Unmarshal(connectResult[i:], &m)
 		if err != nil {
 			Logger.Errorf("forwardTunnelWithConnPool %s Unmarshal connectResult failed: %s", ctx.Req.URL.Host, err)
 		} else {
