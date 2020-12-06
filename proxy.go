@@ -55,7 +55,7 @@ type TunnelInfo struct {
 	Client      net.Conn
 	Target      net.Conn
 	Err         error
-	ParentProxy string
+	ParentProxy *url.URL
 	Pool        ConnPool
 }
 
@@ -63,7 +63,7 @@ type TunnelInfo struct {
 type ResponseInfo struct {
 	Resp        *http.Response
 	Err         error
-	ParentProxy string
+	ParentProxy *url.URL
 	Pool        ConnPool
 }
 
@@ -903,7 +903,7 @@ func (p *Proxy) forwardHTTPWithConnPool(ctx *Context, rw http.ResponseWriter) {
 		p.delegate.BeforeResponse(ctx, &ResponseInfo{
 			Resp:        resp,
 			Err:         err,
-			ParentProxy: parentProxyURL.Host,
+			ParentProxy: parentProxyURL,
 			Pool:        pool,
 		})
 		if ctx.abort {
@@ -1015,7 +1015,7 @@ func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) 
 			Client:      clientConn,
 			Target:      targetConn,
 			Err:         err,
-			ParentProxy: parentProxyURL.Host,
+			ParentProxy: parentProxyURL,
 			Pool:        pool,
 		})
 		if ctx.abort {
@@ -1043,7 +1043,7 @@ func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) 
 			connectReq.Header.Add("Proxy-Authorization", basicAuth)
 		}
 		err = connectReq.Write(targetConn)
-		p.delegate.DuringResponse(ctx, &TunnelInfo{Client: clientConn, Target: targetConn, Err: err, ParentProxy: parentProxyURL.Host, Pool: pool}) // targetConn could be closed in this method
+		p.delegate.DuringResponse(ctx, &TunnelInfo{Client: clientConn, Target: targetConn, Err: err, ParentProxy: parentProxyURL, Pool: pool}) // targetConn could be closed in this method
 		if err != nil {
 			Logger.Errorf("forwardTunnelWithConnPool %s make connect request to %s failed: %s", ctx.Req.URL.Host, parentProxyURL.Host, err)
 			ctx.SetPoolContextErrorWithType(err, PoolWriteTargetConnFail, parentProxyURL.Host)
