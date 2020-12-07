@@ -924,13 +924,13 @@ func (p *Proxy) forwardHTTPWithConnPool(ctx *Context, rw http.ResponseWriter) {
 		// defer resp.Body.Close() is not used as it's in a loop.
 		p.delegate.DuringResponse(ctx, resp)
 
-		buf := make([]byte, 512+1) // max acceptable size is 512 bytes.
+		buf := make([]byte, 4096+1) // max acceptable size is 4096 bytes.
 		n, err := io.ReadFull(resp.Body, buf)
 		switch err {
 		case nil:
-			Logger.Debugf("forwardHTTPWithConnPool %s ReadFull Response is larger than 512 bytes", ctx.Req.URL)
+			Logger.Debugf("forwardHTTPWithConnPool %s ReadFull Response is larger than 4096 bytes", ctx.Req.URL)
 		case io.ErrUnexpectedEOF:
-			Logger.Debugf("forwardHTTPWithConnPool %s ReadFull Response is exactly 512 bytes or smaller", ctx.Req.URL)
+			Logger.Debugf("forwardHTTPWithConnPool %s ReadFull Response is exactly 4096 bytes or smaller", ctx.Req.URL)
 		default:
 			Logger.Errorf("forwardHTTPWithConnPool %s ReadFull failed: %s", ctx.Req.URL, err)
 			ctx.SetPoolContextErrorWithType(err, PoolReadRemoteFail, parentProxyURL.Host)
@@ -1059,7 +1059,7 @@ func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) 
 		// 	continue
 		// }
 
-		connectResult := make([]byte, 512) // buffer for http response header and body
+		connectResult := make([]byte, 4096) // buffer for http response header and body
 		n, err := targetConn.Read(connectResult[:])
 		p.delegate.DuringResponse(ctx, &TunnelInfo{Client: clientConn, Target: targetConn, Err: err, ParentProxy: parentProxyURL, Pool: pool}) // targetConn could be closed in this method
 		// Logger.Debugf("forwardTunnelWithConnPool %s connectResult: %s", ctx.Req.URL.Host, connectResult)
