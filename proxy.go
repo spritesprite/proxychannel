@@ -170,7 +170,7 @@ func (p *Proxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	Logger.Debugf("ServeHTTP got a request, method:%s scheme:%s host:%s", ctx.Req.Method, ctx.Req.URL.Scheme, ctx.Req.Host)
+	// Logger.Debugf("ServeHTTP got a request, method:%s scheme:%s host:%s", ctx.Req.Method, ctx.Req.URL.Scheme, ctx.Req.Host)
 	switch p.mode {
 	case NormalMode:
 		if ctx.Req.Method == http.MethodConnect {
@@ -534,7 +534,7 @@ func WriteProxyErrorToResponseBody(ctx *Context, respWriter Writer, httpcode int
 }
 
 func (p *Proxy) forwardHTTP(ctx *Context, rw http.ResponseWriter) {
-	Logger.Debugf("forwardHTTP scheme:%s host:%s", ctx.Req.URL.Scheme, ctx.Req.Host)
+	// Logger.Debugf("forwardHTTP scheme:%s host:%s", ctx.Req.URL.Scheme, ctx.Req.Host)
 	ctx.Req.URL.Scheme = "http"
 	p.DoRequest(ctx, rw, func(resp *http.Response, err error) {
 		if err != nil {
@@ -562,7 +562,7 @@ func (p *Proxy) forwardHTTP(ctx *Context, rw http.ResponseWriter) {
 }
 
 func (p *Proxy) forwardHTTPS(ctx *Context, rw http.ResponseWriter) {
-	Logger.Debugf("forwardHTTPS scheme:%s host:%s", ctx.Req.URL.Scheme, ctx.Req.Host)
+	// Logger.Debugf("forwardHTTPS scheme:%s host:%s", ctx.Req.URL.Scheme, ctx.Req.Host)
 	tlsConfig, err := p.cert.GenerateTLSConfig(ctx.Req.URL.Host)
 	if err != nil {
 		Logger.Errorf("forwardHTTPS %s generate tlsConfig failed: %s", ctx.Req.URL.Host, err)
@@ -631,7 +631,7 @@ func (p *Proxy) forwardHTTPS(ctx *Context, rw http.ResponseWriter) {
 }
 
 func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
-	Logger.Debugf("forwardTunnel scheme:%s host:%s", ctx.Req.URL.Scheme, ctx.Req.Host)
+	// Logger.Debugf("forwardTunnel scheme:%s host:%s", ctx.Req.URL.Scheme, ctx.Req.Host)
 	parentProxyURL, err := p.delegate.ParentProxy(ctx, rw)
 	if ctx.abort {
 		ctx.SetContextErrType(ParentProxyFail)
