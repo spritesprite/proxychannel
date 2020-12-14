@@ -835,7 +835,7 @@ func CloneBody(b io.ReadCloser) (r io.ReadCloser, body []byte, err error) {
 }
 
 func (p *Proxy) forwardHTTPWithConnPool(ctx *Context, rw http.ResponseWriter) {
-	Logger.Debugf("forwardHTTPWithConnPool scheme:%s host:%s", ctx.Req.URL.Scheme, ctx.Req.Host)
+	// Logger.Debugf("forwardHTTPWithConnPool scheme:%s host:%s", ctx.Req.URL.Scheme, ctx.Req.Host)
 	ctx.Req.URL.Scheme = "http"
 
 	if ctx.Data == nil {
@@ -928,9 +928,9 @@ func (p *Proxy) forwardHTTPWithConnPool(ctx *Context, rw http.ResponseWriter) {
 		n, err := io.ReadFull(resp.Body, buf)
 		switch err {
 		case nil:
-			Logger.Debugf("forwardHTTPWithConnPool %s ReadFull Response is larger than 4096 bytes", ctx.Req.URL)
+			// Logger.Debugf("forwardHTTPWithConnPool %s ReadFull Response is larger than 4096 bytes", ctx.Req.URL)
 		case io.ErrUnexpectedEOF:
-			Logger.Debugf("forwardHTTPWithConnPool %s ReadFull Response is exactly 4096 bytes or smaller", ctx.Req.URL)
+			// Logger.Debugf("forwardHTTPWithConnPool %s ReadFull Response is exactly 4096 bytes or smaller", ctx.Req.URL)
 		default:
 			Logger.Errorf("forwardHTTPWithConnPool %s ReadFull failed: %s", ctx.Req.URL, err)
 			ctx.SetPoolContextErrorWithType(err, PoolReadRemoteFail, parentProxyURL.Host)
@@ -989,7 +989,7 @@ func (p *Proxy) forwardHTTPWithConnPool(ctx *Context, rw http.ResponseWriter) {
 }
 
 func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) {
-	Logger.Debugf("forwardTunnelWithConnPool scheme:%s host:%s", ctx.Req.URL.Scheme, ctx.Req.Host)
+	// Logger.Debugf("forwardTunnelWithConnPool scheme:%s host:%s", ctx.Req.URL.Scheme, ctx.Req.Host)
 	clientConn, err := hijacker(rw)
 	if err != nil {
 		Logger.Errorf("forwardTunnelWithConnPool hijack client connection failed: %s", err)
