@@ -939,35 +939,37 @@ func (p *Proxy) forwardHTTPWithConnPool(ctx *Context, rw http.ResponseWriter) {
 		}
 		buf = buf[:n]
 		// Logger.Debugf("forwardHTTPWithConnPool %s buf: %s", ctx.Req.URL, buf)
-		if resp.StatusCode == http.StatusOK || !strings.Contains(string(buf), "PROXY_CHANNEL_INTERNAL_ERR") {
-			// No need to retry, just return what we get to rw.
-			work = true
-			CopyHeader(rw.Header(), resp.Header)
-			rw.WriteHeader(resp.StatusCode)
-			m, err := rw.Write(buf)
-			ctx.RespLength += int64(m)
-			if err != nil || n != m {
-				if err != nil {
-					Logger.Errorf("forwardHTTPWithConnPool %s first part write client failed:", ctx.Req.URL, err)
-					ctx.SetPoolContextErrorWithType(err, PoolWriteClientFail, parentProxyURL.Host)
-				} else {
-					Logger.Errorf("forwardHTTPWithConnPool %s partial write, read: %d, write: %d", ctx.Req.URL, n, m)
-					ctx.SetPoolContextErrorWithType(fmt.Errorf("forwardHTTPWithConnPool %s partial write, read: %d, write: %d", ctx.Req.URL, n, m), PoolWriteClientFail, parentProxyURL.Host)
+		if resp.StatusCode != http.StatusTooManyRequests {
+			if resp.StatusCode == http.StatusOK || !strings.Contains(string(buf), "PROXY_CHANNEL_INTERNAL_ERR") {
+				// No need to retry, just return what we get to rw.
+				work = true
+				CopyHeader(rw.Header(), resp.Header)
+				rw.WriteHeader(resp.StatusCode)
+				m, err := rw.Write(buf)
+				ctx.RespLength += int64(m)
+				if err != nil || n != m {
+					if err != nil {
+						Logger.Errorf("forwardHTTPWithConnPool %s first part write client failed:", ctx.Req.URL, err)
+						ctx.SetPoolContextErrorWithType(err, PoolWriteClientFail, parentProxyURL.Host)
+					} else {
+						Logger.Errorf("forwardHTTPWithConnPool %s partial write, read: %d, write: %d", ctx.Req.URL, n, m)
+						ctx.SetPoolContextErrorWithType(fmt.Errorf("forwardHTTPWithConnPool %s partial write, read: %d, write: %d", ctx.Req.URL, n, m), PoolWriteClientFail, parentProxyURL.Host)
+					}
+					resp.Body.Close()
+					break
 				}
+				written, err := io.Copy(rw, resp.Body)
+				ctx.RespLength += written
+				if err != nil {
+					Logger.Errorf("forwardHTTPWithConnPool %s write client failed: %s", ctx.Req.URL, err)
+					ctx.SetPoolContextErrorWithType(err, PoolWriteClientFail, parentProxyURL.Host)
+					resp.Body.Close()
+					break
+				}
+				ctx.SetPoolContextErrorWithType(fmt.Errorf("HTTP Regular finish"), PoolHTTPRegularFinish, parentProxyURL.Host)
 				resp.Body.Close()
 				break
 			}
-			written, err := io.Copy(rw, resp.Body)
-			ctx.RespLength += written
-			if err != nil {
-				Logger.Errorf("forwardHTTPWithConnPool %s write client failed: %s", ctx.Req.URL, err)
-				ctx.SetPoolContextErrorWithType(err, PoolWriteClientFail, parentProxyURL.Host)
-				resp.Body.Close()
-				break
-			}
-			ctx.SetPoolContextErrorWithType(fmt.Errorf("HTTP Regular finish"), PoolHTTPRegularFinish, parentProxyURL.Host)
-			resp.Body.Close()
-			break
 		}
 		// Retry
 		m := make(map[string]interface{})
@@ -1070,24 +1072,26 @@ func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) 
 			continue
 		}
 		// "HTTP/X.X 200 OK" takes 15 bytes
-		if string(connectResult[8:15]) == " 200 OK" || !strings.Contains(string(connectResult), "PROXY_CHANNEL_INTERNAL_ERR") {
-			work = true
-			m, err := clientConn.Write(connectResult[:n])
-			ctx.RespLength += int64(m)
-			if err != nil || n != m {
-				if err != nil {
-					Logger.Errorf("forwardTunnelWithConnPool %s first part write client failed:", ctx.Req.URL.Host, err)
-					ctx.SetPoolContextErrorWithType(err, PoolWriteClientFail, parentProxyURL.Host)
-				} else {
-					Logger.Errorf("forwardTunnelWithConnPool %s partial write, read: %d, write: %d", ctx.Req.URL.Host, n, m)
-					ctx.SetPoolContextErrorWithType(fmt.Errorf("forwardTunnelWithConnPool %s partial write, read: %d, write: %d", ctx.Req.URL.Host, n, m), PoolWriteClientFail, parentProxyURL.Host)
+		if string(connectResult[8:13]) != " 429 " {
+			if string(connectResult[8:15]) == " 200 OK" || !strings.Contains(string(connectResult), "PROXY_CHANNEL_INTERNAL_ERR") {
+				work = true
+				m, err := clientConn.Write(connectResult[:n])
+				ctx.RespLength += int64(m)
+				if err != nil || n != m {
+					if err != nil {
+						Logger.Errorf("forwardTunnelWithConnPool %s first part write client failed:", ctx.Req.URL.Host, err)
+						ctx.SetPoolContextErrorWithType(err, PoolWriteClientFail, parentProxyURL.Host)
+					} else {
+						Logger.Errorf("forwardTunnelWithConnPool %s partial write, read: %d, write: %d", ctx.Req.URL.Host, n, m)
+						ctx.SetPoolContextErrorWithType(fmt.Errorf("forwardTunnelWithConnPool %s partial write, read: %d, write: %d", ctx.Req.URL.Host, n, m), PoolWriteClientFail, parentProxyURL.Host)
+					}
+					targetConn.Close()
+					break
 				}
+				transfer(ctx, clientConn, targetConn, parentProxyURL.Host)
 				targetConn.Close()
 				break
 			}
-			transfer(ctx, clientConn, targetConn, parentProxyURL.Host)
-			targetConn.Close()
-			break
 		}
 		// Retry
 		mbuf := make(map[string]interface{})
