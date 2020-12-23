@@ -938,7 +938,7 @@ func (p *Proxy) forwardHTTPWithConnPool(ctx *Context, rw http.ResponseWriter) {
 			continue
 		}
 		buf = buf[:n]
-		// Logger.Debugf("forwardHTTPWithConnPool %s buf: %s", ctx.Req.URL, buf)
+		Logger.Debugf("forwardHTTPWithConnPool %s buf: %s", ctx.Req.URL, buf)
 		if resp.StatusCode == http.StatusOK || !strings.Contains(string(buf), "PROXY_CHANNEL_INTERNAL_ERR") {
 			// No need to retry, just return what we get to rw.
 			work = true
@@ -1061,7 +1061,7 @@ func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) 
 
 		connectResult := make([]byte, 4096) // buffer for http response header and body
 		n, err := targetConn.Read(connectResult[:])
-		// Logger.Debugf("forwardTunnelWithConnPool %s connectResult: %s", ctx.Req.URL.Host, connectResult)
+		Logger.Debugf("forwardTunnelWithConnPool %s connectResult: %s", ctx.Req.URL.Host, connectResult)
 		p.delegate.DuringResponse(ctx, &TunnelInfo{Client: clientConn, Target: targetConn, Err: err, ParentProxy: parentProxyURL, Pool: pool}) // targetConn could be closed in this method
 		if err != nil {
 			Logger.Errorf("forwardTunnelWithConnPool %s read error: %s", ctx.Req.URL.Host, err)
