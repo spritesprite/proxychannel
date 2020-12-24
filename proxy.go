@@ -10,12 +10,14 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"math"
 	"net"
 	"net/http"
 	"net/http/httptrace"
 	"net/http/httputil"
 	"net/url"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -631,6 +633,14 @@ func (p *Proxy) forwardHTTPS(ctx *Context, rw http.ResponseWriter) {
 }
 
 func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
+	// ****************** debug begin ********************
+	debugTimestamp := &DebugTimestamp{
+		Timestamp: sync.Map{},
+	}
+	ctx.Data["time"] = debugTimestamp
+	fwdTime := ctx.Data["fwdTime"].(float64)
+	// ******************  debug end  ********************
+
 	// Logger.Debugf("forwardTunnel scheme:%s host:%s", ctx.Req.URL.Scheme, ctx.Req.Host)
 	parentProxyURL, err := p.delegate.ParentProxy(ctx, rw)
 	if ctx.abort {
@@ -661,7 +671,16 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 		targetAddr = parentProxyURL.Host
 	}
 
+	// ****************** debug begin ********************
+	debugTimestamp.Timestamp.Store("tunnel_dail_start", GetCurrentTimeInFloat64(3)-fwdTime)
+	// ******************  debug end  ********************
+
 	targetConn, err := net.DialTimeout("tcp", targetAddr, defaultTargetConnectTimeout)
+
+	// ****************** debug begin ********************
+	debugTimestamp.Timestamp.Store("tunnel_dail_finish", GetCurrentTimeInFloat64(3)-fwdTime)
+	// ******************  debug end  ********************
+
 	connWrapper := &ConnWrapper{
 		Conn: targetConn,
 		Err:  err,
@@ -710,7 +729,17 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 			basicAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
 			connectReq.Header.Add("Proxy-Authorization", basicAuth)
 		}
+
+		// ****************** debug begin ********************
+		debugTimestamp.Timestamp.Store("tunnel_write_connect_start", GetCurrentTimeInFloat64(3)-fwdTime)
+		// ******************  debug end  ********************
+
 		err := connectReq.Write(targetConn)
+
+		// ****************** debug begin ********************
+		debugTimestamp.Timestamp.Store("tunnel_write_connect_finish", GetCurrentTimeInFloat64(3)-fwdTime)
+		// ******************  debug end  ********************
+
 		if err != nil {
 			Logger.Errorf("forwardTunnel %s make connect request to remote failed: %s", ctx.Req.URL.Host, err)
 			WriteProxyErrorToResponseBody(ctx, clientConn, http.StatusBadGateway, fmt.Sprintf("forwardTunnel %s make connect request to remote failed: %s", ctx.Req.URL.Host, err), badGateway)
@@ -720,13 +749,26 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 		// tunnelRequestLine := makeTunnelRequestLine(ctx.Req.URL.Host)
 		// targetConn.Write([]byte(tunnelRequestLine))
 	}
+	// ****************** debug begin ********************
+	debugTimestamp.Timestamp.Store("tunnel_transfer_start", GetCurrentTimeInFloat64(3)-fwdTime)
+	// ******************  debug end  ********************
 	transfer(ctx, clientConn, targetConn)
 }
 
 // transfer does two-way forwarding through connections
 func transfer(ctx *Context, clientConn net.Conn, targetConn net.Conn, parentProxy ...string) {
+	// ****************** debug begin ********************
+	debugTimestamp := ctx.Data["time"].(*DebugTimestamp)
+	fwdTime := ctx.Data["fwdTime"].(float64)
+	// ******************  debug end  ********************
 	go func() {
+		// ****************** debug begin ********************
+		debugTimestamp.Timestamp.Store("tunnel_trans_write_client_begin", GetCurrentTimeInFloat64(3)-fwdTime)
+		// ******************  debug end  ********************
 		written1, err1 := io.Copy(clientConn, targetConn)
+		// ****************** debug begin ********************
+		debugTimestamp.Timestamp.Store("tunnel_trans_write_client_mid", GetCurrentTimeInFloat64(3)-fwdTime)
+		// ******************  debug end  ********************
 		if err1 != nil {
 			Logger.Errorf("io.Copy write clientConn failed: %s", err1)
 			if len(parentProxy) <= 1 {
@@ -740,9 +782,18 @@ func transfer(ctx *Context, clientConn net.Conn, targetConn net.Conn, parentProx
 		ctx.RespLength += written1
 		clientConn.Close()
 		targetConn.Close()
+		// ****************** debug begin ********************
+		debugTimestamp.Timestamp.Store("tunnel_trans_write_client_end", GetCurrentTimeInFloat64(3)-fwdTime)
+		// ******************  debug end  ********************
 	}()
 
+	// ****************** debug begin ********************
+	debugTimestamp.Timestamp.Store("tunnel_trans_write_target_begin", GetCurrentTimeInFloat64(3)-fwdTime)
+	// ******************  debug end  ********************
 	written2, err2 := io.Copy(targetConn, clientConn)
+	// ****************** debug begin ********************
+	debugTimestamp.Timestamp.Store("tunnel_trans_write_target_mid", GetCurrentTimeInFloat64(3)-fwdTime)
+	// ******************  debug end  ********************
 	if err2 != nil {
 		Logger.Errorf("io.Copy write targetConn failed: %s", err2)
 		if len(parentProxy) <= 1 {
@@ -756,6 +807,9 @@ func transfer(ctx *Context, clientConn net.Conn, targetConn net.Conn, parentProx
 	ctx.ReqLength += written2
 	targetConn.Close()
 	clientConn.Close()
+	// ****************** debug begin ********************
+	debugTimestamp.Timestamp.Store("tunnel_trans_write_target_end", GetCurrentTimeInFloat64(3)-fwdTime)
+	// ******************  debug end  ********************
 }
 
 // hijacker gets the underlying connection of an http.ResponseWriter
@@ -1119,6 +1173,22 @@ func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) 
 		ctx.SetPoolContextErrorWithType(nil, PoolNoAvailableParentProxyFail)
 	}
 }
+
+// ****************** debug begin ********************
+
+// DebugTimestamp is for debugging.
+type DebugTimestamp struct {
+	Timestamp sync.Map // map[string]float64
+}
+
+// GetCurrentTimeInFloat64 gets current time in float64 with certain precision.
+func GetCurrentTimeInFloat64(precision int) float64 {
+	p := math.Pow10(precision)
+	const NanoSec float64 = 1000000000
+	return float64(int(float64(time.Now().UnixNano())/NanoSec*p)) / p
+}
+
+// ******************  debug end  ********************
 
 // func (p *Proxy) forwardHTTPSWithConnPool(ctx *Context, rw http.ResponseWriter) {
 // 	Logger.Debugf("forwardHTTPSWithConnPool scheme:%s host:%s", ctx.Req.URL.Scheme, ctx.Req.Host)
