@@ -716,20 +716,12 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 			return
 		}
 	} else {
-		// ****************** debug begin ********************
-		_, err = clientConn.Write(tunnelEstablishedResponseLine)
-		if err != nil {
-			Logger.Errorf("forwardTunnel %s write message failed: %s", ctx.Req.URL.Host, err)
-			ctx.SetContextErrorWithType(err, TunnelWriteEstRespFail)
-			return
-		}
-		// ******************  debug end  ********************
-
 		connectReq := &http.Request{
 			Method: "CONNECT",
-			URL:    &url.URL{Opaque: ctx.Req.URL.Host},
+			// URL:    &url.URL{Opaque: ctx.Req.URL.Host},
 			Host:   ctx.Req.URL.Host,
-			Header: CloneHeader(ctx.Req.Header),
+			Header: http.Header{},
+			// Header: CloneHeader(ctx.Req.Header),
 		}
 		u := parentProxyURL.User
 		if u != nil {
