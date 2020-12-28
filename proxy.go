@@ -38,8 +38,8 @@ func makeTunnelRequestLine(addr string) string {
 	return fmt.Sprintf("CONNECT %s HTTP/1.1\r\n\r\n", addr)
 }
 
-func makeTunnelRequestLineWithAuth(addr, auth string) string {
-	return fmt.Sprintf("CONNECT %s HTTP/1.1\r\nProxy-Authorization: %s\r\n", addr, auth)
+func makeTunnelRequestLineWithAuth(addr, host, auth string) string {
+	return fmt.Sprintf("CONNECT %s HTTP/1.1\nHost: %s\nProxy-Authorization: %s\r\n\r\n", addr, host, auth)
 }
 
 // ProxyError specifies all the possible errors that can occur due to this proxy's behavior,
@@ -741,7 +741,7 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 		debugTimestamp.Timestamp.Store("tunnel_write_connect_start", GetCurrentTimeInFloat64(3)-fwdTime)
 		// ******************  debug end  ********************
 
-		tunnelRequestLine := makeTunnelRequestLineWithAuth(ctx.Req.URL.Host, auth)
+		tunnelRequestLine := makeTunnelRequestLineWithAuth(ctx.Req.URL.Host, ctx.Req.URL.Host, auth)
 		targetConn.Write([]byte(tunnelRequestLine))
 		// err := connectReq.Write(targetConn)
 
