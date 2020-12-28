@@ -1069,6 +1069,13 @@ func (p *Proxy) forwardHTTPWithConnPool(ctx *Context, rw http.ResponseWriter) {
 
 func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) {
 	// Logger.Debugf("forwardTunnelWithConnPool scheme:%s host:%s", ctx.Req.URL.Scheme, ctx.Req.Host)
+	// ****************** debug begin ********************
+	debugTimestamp := &DebugTimestamp{
+		Timestamp: sync.Map{},
+	}
+	ctx.Data["time"] = debugTimestamp
+	fwdTime := ctx.Data["fwdTime"].(float64)
+	// ******************  debug end  ********************
 	clientConn, err := hijacker(rw)
 	if err != nil {
 		Logger.Errorf("forwardTunnelWithConnPool hijack client connection failed: %s", err)
@@ -1089,7 +1096,13 @@ func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) 
 	}
 	work := false
 	for parentProxyURL, pool := range poolmap {
+		// ****************** debug begin ********************
+		debugTimestamp.Timestamp.Store("pool_get_conn_begin_"+parentProxyURL.Host, GetCurrentTimeInFloat64(3)-fwdTime)
+		// ******************  debug end  ********************
 		targetConn, err := pool.GetWithTimeout(defaultTargetConnectTimeout)
+		// ****************** debug begin ********************
+		debugTimestamp.Timestamp.Store("pool_get_conn_finish_"+parentProxyURL.Host, GetCurrentTimeInFloat64(3)-fwdTime)
+		// ******************  debug end  ********************
 		p.delegate.BeforeResponse(ctx, &TunnelInfo{
 			Client:      clientConn,
 			Target:      targetConn,
@@ -1110,6 +1123,10 @@ func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) 
 
 		err = makeTunnelRequestWithAuth(ctx, parentProxyURL, targetConn)
 		// targetConn.Write([]byte(tunnelRequestLine))
+
+		// ****************** debug begin ********************
+		debugTimestamp.Timestamp.Store("pool_tunnel_write_connect_finish_"+parentProxyURL.Host, GetCurrentTimeInFloat64(3)-fwdTime)
+		// ******************  debug end  ********************
 
 		p.delegate.DuringResponse(ctx, &TunnelInfo{Client: clientConn, Target: targetConn, Err: err, ParentProxy: parentProxyURL, Pool: pool}) // targetConn could be closed in this method
 		if err != nil {
