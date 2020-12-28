@@ -38,8 +38,16 @@ func makeTunnelRequestLine(addr string) string {
 	return fmt.Sprintf("CONNECT %s HTTP/1.1\r\n\r\n", addr)
 }
 
-func makeTunnelRequestLineWithAuth(addr, host, auth string) string {
-	return fmt.Sprintf("CONNECT %s HTTP/1.1\nHost: %s\nProxy-Authorization: %s\r\n\r\n", addr, host, auth)
+func makeTunnelRequestLineWithAuth(ctx *Context, parentProxyURL *url.URL) string {
+	u := parentProxyURL.User
+	if u != nil {
+		username := u.Username()
+		password, _ := u.Password()
+		basicAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
+		// connectReq.Header.Add("Proxy-Authorization", basicAuth)
+		return fmt.Sprintf("CONNECT %s %s\nHost: %s\nProxy-Authorization: %s\r\n\r\n", ctx.Req.Proto, ctx.Req.URL.Host, ctx.Req.URL.Host, basicAuth)
+	}
+	return fmt.Sprintf("CONNECT %s %s\nHost: %s\r\n\r\n", ctx.Req.Proto, ctx.Req.URL.Host, ctx.Req.URL.Host)
 }
 
 // ProxyError specifies all the possible errors that can occur due to this proxy's behavior,
@@ -720,28 +728,11 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 			return
 		}
 	} else {
-		// connectReq := &http.Request{
-		// 	Method: "CONNECT",
-		// 	// URL:    &url.URL{Opaque: ctx.Req.URL.Host},
-		// 	Host:   ctx.Req.URL.Host,
-		// 	Header: http.Header{},
-		// 	// Header: CloneHeader(ctx.Req.Header),
-		// }
-		auth := ""
-		u := parentProxyURL.User
-		if u != nil {
-			username := u.Username()
-			password, _ := u.Password()
-			basicAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
-			// connectReq.Header.Add("Proxy-Authorization", basicAuth)
-			auth = basicAuth
-		}
-
 		// ****************** debug begin ********************
 		debugTimestamp.Timestamp.Store("tunnel_write_connect_start", GetCurrentTimeInFloat64(3)-fwdTime)
 		// ******************  debug end  ********************
 
-		tunnelRequestLine := makeTunnelRequestLineWithAuth(ctx.Req.URL.Host, ctx.Req.URL.Host, auth)
+		tunnelRequestLine := makeTunnelRequestLineWithAuth(ctx, parentProxyURL)
 		targetConn.Write([]byte(tunnelRequestLine))
 		// err := connectReq.Write(targetConn)
 
@@ -1096,20 +1087,9 @@ func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) 
 		}
 		// defer targetConn.Close is not used as it's in a loop
 
-		connectReq := &http.Request{
-			Method: "CONNECT",
-			URL:    &url.URL{Opaque: ctx.Req.URL.Host},
-			Host:   ctx.Req.URL.Host,
-			Header: CloneHeader(ctx.Req.Header),
-		}
-		u := parentProxyURL.User
-		if u != nil {
-			username := u.Username()
-			password, _ := u.Password()
-			basicAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
-			connectReq.Header.Add("Proxy-Authorization", basicAuth)
-		}
-		err = connectReq.Write(targetConn)
+		tunnelRequestLine := makeTunnelRequestLineWithAuth(ctx, parentProxyURL)
+		targetConn.Write([]byte(tunnelRequestLine))
+
 		p.delegate.DuringResponse(ctx, &TunnelInfo{Client: clientConn, Target: targetConn, Err: err, ParentProxy: parentProxyURL, Pool: pool}) // targetConn could be closed in this method
 		if err != nil {
 			Logger.Errorf("forwardTunnelWithConnPool %s make connect request to %s failed: %s", ctx.Req.URL.Host, parentProxyURL.Host, err)
