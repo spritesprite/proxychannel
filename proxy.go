@@ -38,6 +38,10 @@ func makeTunnelRequestLine(addr string) string {
 	return fmt.Sprintf("CONNECT %s HTTP/1.1\r\n\r\n", addr)
 }
 
+func makeTunnelRequestLineWithAuth(addr, auth string) string {
+	return fmt.Sprintf("CONNECT %s HTTP/1.1\r\nProxy-Authorization: %s\r\n", addr, auth)
+}
+
 // ProxyError specifies all the possible errors that can occur due to this proxy's behavior,
 // which does not include the behavior of parent proxies.
 type ProxyError struct {
@@ -716,26 +720,30 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 			return
 		}
 	} else {
-		connectReq := &http.Request{
-			Method: "CONNECT",
-			// URL:    &url.URL{Opaque: ctx.Req.URL.Host},
-			Host:   ctx.Req.URL.Host,
-			Header: http.Header{},
-			// Header: CloneHeader(ctx.Req.Header),
-		}
+		// connectReq := &http.Request{
+		// 	Method: "CONNECT",
+		// 	// URL:    &url.URL{Opaque: ctx.Req.URL.Host},
+		// 	Host:   ctx.Req.URL.Host,
+		// 	Header: http.Header{},
+		// 	// Header: CloneHeader(ctx.Req.Header),
+		// }
+		auth := ""
 		u := parentProxyURL.User
 		if u != nil {
 			username := u.Username()
 			password, _ := u.Password()
 			basicAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
-			connectReq.Header.Add("Proxy-Authorization", basicAuth)
+			// connectReq.Header.Add("Proxy-Authorization", basicAuth)
+			auth = basicAuth
 		}
 
 		// ****************** debug begin ********************
 		debugTimestamp.Timestamp.Store("tunnel_write_connect_start", GetCurrentTimeInFloat64(3)-fwdTime)
 		// ******************  debug end  ********************
 
-		err := connectReq.Write(targetConn)
+		tunnelRequestLine := makeTunnelRequestLineWithAuth(ctx.Req.URL.Host, auth)
+		targetConn.Write([]byte(tunnelRequestLine))
+		// err := connectReq.Write(targetConn)
 
 		// ****************** debug begin ********************
 		debugTimestamp.Timestamp.Store("tunnel_write_connect_finish", GetCurrentTimeInFloat64(3)-fwdTime)
@@ -747,8 +755,6 @@ func (p *Proxy) forwardTunnel(ctx *Context, rw http.ResponseWriter) {
 			ctx.SetContextErrorWithType(err, TunnelConnectRemoteFail)
 			return
 		}
-		// tunnelRequestLine := makeTunnelRequestLine(ctx.Req.URL.Host)
-		// targetConn.Write([]byte(tunnelRequestLine))
 	}
 	// ****************** debug begin ********************
 	debugTimestamp.Timestamp.Store("tunnel_transfer_start", GetCurrentTimeInFloat64(3)-fwdTime)
