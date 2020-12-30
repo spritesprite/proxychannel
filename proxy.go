@@ -57,7 +57,7 @@ func makeTunnelRequestWithAuth(ctx *Context, parentProxyURL *url.URL, targetConn
 		username := u.Username()
 		password, _ := u.Password()
 		basicAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
-		connectReq.Header.Add("Proxy-Authorization", basicAuth)
+		connectReq.Header.Set("Proxy-Authorization", basicAuth)
 	}
 	return connectReq.Write(targetConn)
 
