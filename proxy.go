@@ -1100,7 +1100,10 @@ func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) 
 		// ****************** debug begin ********************
 		debugTimestamp.Timestamp.Store("pool_get_conn_begin_"+parentProxyURL.Host, GetCurrentTimeInFloat64(3)-fwdTime)
 		// ******************  debug end  ********************
-		targetConn, err := pool.GetWithTimeout(defaultTargetConnectTimeout)
+
+		targetConn, err := net.DialTimeout("tcp", parentProxyURL.Host, defaultTargetConnectTimeout)
+		// targetConn, err := pool.GetWithTimeout(defaultTargetConnectTimeout)
+
 		// ****************** debug begin ********************
 		debugTimestamp.Timestamp.Store("pool_get_conn_finish_"+parentProxyURL.Host, GetCurrentTimeInFloat64(3)-fwdTime)
 		// ******************  debug end  ********************
@@ -1147,6 +1150,11 @@ func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) 
 
 		connectResult := make([]byte, 4096) // buffer for http response header and body
 		n, err := targetConn.Read(connectResult[:])
+
+		// ****************** debug begin ********************
+		debugTimestamp.Timestamp.Store("pool_4096_finish_"+parentProxyURL.Host, GetCurrentTimeInFloat64(3)-fwdTime)
+		// ******************  debug end  ********************
+
 		// Logger.Debugf("forwardTunnelWithConnPool %s connectResult: %s", ctx.Req.URL.Host, connectResult)
 		p.delegate.DuringResponse(ctx, &TunnelInfo{Client: clientConn, Target: targetConn, Err: err, ParentProxy: parentProxyURL, Pool: pool}) // targetConn could be closed in this method
 		if err != nil {
