@@ -46,8 +46,8 @@ func makeTunnelRequestWithAuth(ctx *Context, parentProxyURL *url.URL, targetConn
 		Method:     "CONNECT",
 		URL:        &url.URL{Opaque: ctx.Req.URL.Host},
 		Host:       ctx.Req.URL.Host,
-		Header:     make(http.Header),
-		// Header:     CloneHeader(ctx.Req.Header),
+		// Header:     make(http.Header),
+		Header: CloneHeader(ctx.Req.Header),
 	}
 	if connectReq.Proto == "HTTP/1.0" {
 		connectReq.Header.Del("Connection")
