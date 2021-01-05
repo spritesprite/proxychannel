@@ -1101,8 +1101,8 @@ func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) 
 		debugTimestamp.Timestamp.Store("pool_get_conn_begin_"+parentProxyURL.Host, GetCurrentTimeInFloat64(3)-fwdTime)
 		// ******************  debug end  ********************
 
-		targetConn, err := net.DialTimeout("tcp", parentProxyURL.Host, defaultTargetConnectTimeout)
-		// targetConn, err := pool.GetWithTimeout(defaultTargetConnectTimeout)
+		// targetConn, err := net.DialTimeout("tcp", parentProxyURL.Host, defaultTargetConnectTimeout)
+		targetConn, err := pool.GetWithTimeout(defaultTargetConnectTimeout)
 
 		// ****************** debug begin ********************
 		debugTimestamp.Timestamp.Store("pool_get_conn_finish_"+parentProxyURL.Host, GetCurrentTimeInFloat64(3)-fwdTime)
