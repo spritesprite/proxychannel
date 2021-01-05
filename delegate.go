@@ -112,7 +112,7 @@ type ConnPool interface {
 	Get() (net.Conn, error)
 	GetWithTimeout(timeout time.Duration) (net.Conn, error)
 	Close() error
-	Remove(conn net.Conn) error
+	// Remove(conn net.Conn) error
 }
 
 // Delegate defines some extra manipulation on requests set by user.
