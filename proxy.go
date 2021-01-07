@@ -1005,6 +1005,9 @@ func (p *Proxy) forwardHTTPWithConnPool(ctx *Context, rw http.ResponseWriter) {
 			// Logger.Debugf("forwardHTTPWithConnPool %s ReadFull Response is larger than 4096 bytes", ctx.Req.URL)
 		case io.ErrUnexpectedEOF:
 			// Logger.Debugf("forwardHTTPWithConnPool %s ReadFull Response is exactly 4096 bytes or smaller", ctx.Req.URL)
+		case io.EOF:
+			// resp.Body is empty, we do not treat it as an error.
+			n = 0
 		default:
 			Logger.Errorf("forwardHTTPWithConnPool %s ReadFull failed: %s", ctx.Req.URL, err)
 			ctx.SetPoolContextErrorWithType(err, PoolReadRemoteFail, parentProxyURL.Host)
