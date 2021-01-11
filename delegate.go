@@ -115,7 +115,7 @@ type ConnPool interface {
 	GetWithTimeout(timeout time.Duration) (net.Conn, error)
 	Close() error
 	GetTag() string             // get the human readable tag of the remote
-	GetWeight() string          // get the weight of this connection pool
+	GetWeight() int             // get the weight of this connection pool
 	GetRemoteAddrURL() *url.URL // get the remote addr of this connection pool
 	// Remove(conn net.Conn) error
 }
