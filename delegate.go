@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"sync"
 	"time"
+
+	"github.com/jmcvetta/randutil"
 )
 
 // Context stores what methods of Delegate would need as input.
@@ -112,6 +114,9 @@ type ConnPool interface {
 	Get() (net.Conn, error)
 	GetWithTimeout(timeout time.Duration) (net.Conn, error)
 	Close() error
+	GetTag() string             // get the human readable tag of the remote
+	GetWeight() string          // get the weight of this connection pool
+	GetRemoteAddrURL() *url.URL // get the remote addr of this connection pool
 	// Remove(conn net.Conn) error
 }
 
@@ -126,7 +131,7 @@ type Delegate interface {
 	ParentProxy(ctx *Context, i interface{}) (*url.URL, error)
 	DuringResponse(ctx *Context, i interface{})
 	Finish(ctx *Context, rw http.ResponseWriter)
-	GetConnPool(ctx *Context) (map[*url.URL]ConnPool, error)
+	GetConnPool(ctx *Context) ([]randutil.Choice, error)
 }
 
 var _ Delegate = &DefaultDelegate{}
@@ -168,6 +173,6 @@ func (h *DefaultDelegate) DuringResponse(ctx *Context, i interface{}) {}
 func (h *DefaultDelegate) Finish(ctx *Context, rw http.ResponseWriter) {}
 
 // GetConnPool .
-func (h *DefaultDelegate) GetConnPool(ctx *Context) (map[*url.URL]ConnPool, error) {
+func (h *DefaultDelegate) GetConnPool(ctx *Context) ([]randutil.Choice, error) {
 	return nil, fmt.Errorf("no conn pool available")
 }

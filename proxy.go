@@ -21,6 +21,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/jmcvetta/randutil"
 	"github.com/spritesprite/proxychannel/cert"
 )
 
@@ -927,7 +928,7 @@ func (p *Proxy) forwardHTTPWithConnPool(ctx *Context, rw http.ResponseWriter) {
 		}
 	}
 
-	poolmap, err := p.delegate.GetConnPool(ctx)
+	poolChoices, err := p.delegate.GetConnPool(ctx)
 	if err != nil {
 		Logger.Errorf("forwardHTTPWithConnPool %s GetConnPool failed: %s", ctx.Req.URL.Host, err)
 		rw.WriteHeader(http.StatusBadGateway)
@@ -937,10 +938,17 @@ func (p *Proxy) forwardHTTPWithConnPool(ctx *Context, rw http.ResponseWriter) {
 	}
 
 	work := false
-	for parentProxyURL, pool := range poolmap {
+	for range poolChoices {
 		// pool is not actully used to connect parent proxy,
 		// it's just used to show whether a connection to it is performing well.
 		// I know it's weird, and it will be fixed in the future.
+
+		choice, err := randutil.WeightedChoice(poolChoices)
+		choice.Weight = 0
+		pool := choice.Item.(ConnPool)
+		parentProxyURL := pool.GetRemoteAddrURL()
+		proxyTag := pool.GetTag()
+
 		type CtxKey int
 		var pkey CtxKey = 0
 		fakeCtx := context.WithValue(newReq.Context(), pkey, parentProxyURL)
@@ -987,7 +995,7 @@ func (p *Proxy) forwardHTTPWithConnPool(ctx *Context, rw http.ResponseWriter) {
 
 		if err != nil {
 			Logger.Errorf("forwardHTTPWithConnPool %s RoundTrip failed: %s", ctx.Req.URL, err)
-			ctx.SetPoolContextErrorWithType(err, PoolRoundTripFail, parentProxyURL.Host)
+			ctx.SetPoolContextErrorWithType(err, PoolRoundTripFail, proxyTag)
 			continue
 		}
 		removeConnectionHeaders(resp.Header)
@@ -1010,7 +1018,7 @@ func (p *Proxy) forwardHTTPWithConnPool(ctx *Context, rw http.ResponseWriter) {
 			n = 0
 		default:
 			Logger.Errorf("forwardHTTPWithConnPool %s ReadFull failed: %s", ctx.Req.URL, err)
-			ctx.SetPoolContextErrorWithType(err, PoolReadRemoteFail, parentProxyURL.Host)
+			ctx.SetPoolContextErrorWithType(err, PoolReadRemoteFail, proxyTag)
 			resp.Body.Close()
 			continue
 		}
@@ -1027,10 +1035,10 @@ func (p *Proxy) forwardHTTPWithConnPool(ctx *Context, rw http.ResponseWriter) {
 				if err != nil || n != m {
 					if err != nil {
 						Logger.Errorf("forwardHTTPWithConnPool %s first part write client failed:", ctx.Req.URL, err)
-						ctx.SetPoolContextErrorWithType(err, PoolWriteClientFail, parentProxyURL.Host)
+						ctx.SetPoolContextErrorWithType(err, PoolWriteClientFail, proxyTag)
 					} else {
 						Logger.Errorf("forwardHTTPWithConnPool %s partial write, read: %d, write: %d", ctx.Req.URL, n, m)
-						ctx.SetPoolContextErrorWithType(fmt.Errorf("forwardHTTPWithConnPool %s partial write, read: %d, write: %d", ctx.Req.URL, n, m), PoolWriteClientFail, parentProxyURL.Host)
+						ctx.SetPoolContextErrorWithType(fmt.Errorf("forwardHTTPWithConnPool %s partial write, read: %d, write: %d", ctx.Req.URL, n, m), PoolWriteClientFail, proxyTag)
 					}
 					resp.Body.Close()
 					break
@@ -1039,25 +1047,25 @@ func (p *Proxy) forwardHTTPWithConnPool(ctx *Context, rw http.ResponseWriter) {
 				ctx.RespLength += written
 				if err != nil {
 					Logger.Errorf("forwardHTTPWithConnPool %s write client failed: %s", ctx.Req.URL, err)
-					ctx.SetPoolContextErrorWithType(err, PoolWriteClientFail, parentProxyURL.Host)
+					ctx.SetPoolContextErrorWithType(err, PoolWriteClientFail, proxyTag)
 					resp.Body.Close()
 					break
 				}
-				ctx.SetPoolContextErrorWithType(fmt.Errorf("HTTP Regular finish"), PoolHTTPRegularFinish, parentProxyURL.Host)
+				ctx.SetPoolContextErrorWithType(fmt.Errorf("HTTP Regular finish"), PoolHTTPRegularFinish, proxyTag)
 				resp.Body.Close()
 				break
 			}
 		}
 		// Retry
 		if resp.StatusCode == http.StatusTooManyRequests {
-			ctx.SetPoolContextErrorWithType(fmt.Errorf("errCode:429 errMsg:Acquire proxy failed : no available proxy"), PoolParentProxyFail, parentProxyURL.Host)
+			ctx.SetPoolContextErrorWithType(fmt.Errorf("errCode:429 errMsg:Acquire proxy failed : no available proxy"), PoolParentProxyFail, proxyTag)
 		} else {
 			m := make(map[string]interface{})
 			err = json.Unmarshal(buf, &m)
 			if err != nil {
 				Logger.Errorf("forwardHTTPWithConnPool %s Unmarshal resp body failed, body: %s, err: %s", ctx.Req.URL, buf, err)
 			} else {
-				ctx.SetPoolContextErrorWithType(fmt.Errorf("errCode:%d errMsg:%s", int(m["errCode"].(float64)), m["errMsg"].(string)), PoolParentProxyFail, parentProxyURL.Host)
+				ctx.SetPoolContextErrorWithType(fmt.Errorf("errCode:%d errMsg:%s", int(m["errCode"].(float64)), m["errMsg"].(string)), PoolParentProxyFail, proxyTag)
 			}
 		}
 		resp.Body.Close()
@@ -1091,7 +1099,7 @@ func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) 
 	ctx.Hijack = true
 	defer clientConn.Close()
 
-	poolmap, err := p.delegate.GetConnPool(ctx)
+	poolChoices, err := p.delegate.GetConnPool(ctx)
 	if err != nil {
 		Logger.Errorf("forwardTunnelWithConnPool %s GetConnPool failed: %s", ctx.Req.URL.Host, err)
 		WriteProxyErrorToResponseBody(ctx, clientConn, http.StatusBadGateway, fmt.Sprintf("forwardTunnelWithConnPool %s GetConnPool failed: %s", ctx.Req.URL.Host, err), badGateway)
@@ -1099,16 +1107,22 @@ func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) 
 		return
 	}
 	work := false
-	for parentProxyURL, pool := range poolmap {
+
+	for range poolChoices {
+		choice, err := randutil.WeightedChoice(poolChoices)
+		choice.Weight = 0
+		pool := choice.Item.(ConnPool)
+		parentProxyURL := pool.GetRemoteAddrURL()
+		proxyTag := pool.GetTag()
 		// ****************** debug begin ********************
-		debugTimestamp.Timestamp.Store("pool_get_conn_begin_"+parentProxyURL.Host, GetCurrentTimeInFloat64(3)-fwdTime)
+		debugTimestamp.Timestamp.Store(proxyTag+"_pool_get_conn_begin", GetCurrentTimeInFloat64(3)-fwdTime)
 		// ******************  debug end  ********************
 
 		targetConn, err := net.DialTimeout("tcp", parentProxyURL.Host, defaultTargetConnectTimeout)
 		// targetConn, err := pool.GetWithTimeout(defaultTargetConnectTimeout)
 
 		// ****************** debug begin ********************
-		debugTimestamp.Timestamp.Store("pool_get_conn_finish_"+parentProxyURL.Host, GetCurrentTimeInFloat64(3)-fwdTime)
+		debugTimestamp.Timestamp.Store(proxyTag+"_pool_get_conn_finish", GetCurrentTimeInFloat64(3)-fwdTime)
 		// ******************  debug end  ********************
 		p.delegate.BeforeResponse(ctx, &TunnelInfo{
 			Client:      clientConn,
@@ -1122,8 +1136,8 @@ func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) 
 			return
 		}
 		if err != nil {
-			Logger.Errorf("forwardTunnelWithConnPool %s get connection to %s failed: %s", ctx.Req.URL.Host, parentProxyURL.Host, err)
-			ctx.SetPoolContextErrorWithType(err, PoolGetConnFail, parentProxyURL.Host)
+			Logger.Errorf("forwardTunnelWithConnPool %s get connection to %s(%s) failed: %s", ctx.Req.URL.Host, parentProxyURL.Host, proxyTag, err)
+			ctx.SetPoolContextErrorWithType(err, PoolGetConnFail, proxyTag)
 			continue
 		}
 		// defer targetConn.Close is not used as it's in a loop
@@ -1132,13 +1146,13 @@ func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) 
 		// targetConn.Write([]byte(tunnelRequestLine))
 
 		// ****************** debug begin ********************
-		debugTimestamp.Timestamp.Store("pool_tunnel_write_connect_finish_"+parentProxyURL.Host, GetCurrentTimeInFloat64(3)-fwdTime)
+		debugTimestamp.Timestamp.Store(proxyTag+"_pool_tunnel_write_connect_finish", GetCurrentTimeInFloat64(3)-fwdTime)
 		// ******************  debug end  ********************
 
 		p.delegate.DuringResponse(ctx, &TunnelInfo{Client: clientConn, Target: targetConn, Err: err, ParentProxy: parentProxyURL, Pool: pool}) // targetConn could be closed in this method
 		if err != nil {
-			Logger.Errorf("forwardTunnelWithConnPool %s make connect request to %s failed: %s", ctx.Req.URL.Host, parentProxyURL.Host, err)
-			ctx.SetPoolContextErrorWithType(err, PoolWriteTargetConnFail, parentProxyURL.Host)
+			Logger.Errorf("forwardTunnelWithConnPool %s make connect request to %s(%s) failed: %s", ctx.Req.URL.Host, parentProxyURL.Host, proxyTag, err)
+			ctx.SetPoolContextErrorWithType(err, PoolWriteTargetConnFail, proxyTag)
 			targetConn.Close()
 			continue
 		}
@@ -1155,14 +1169,14 @@ func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) 
 		n, err := targetConn.Read(connectResult[:])
 
 		// ****************** debug begin ********************
-		debugTimestamp.Timestamp.Store("pool_4096_finish_"+parentProxyURL.Host, GetCurrentTimeInFloat64(3)-fwdTime)
+		debugTimestamp.Timestamp.Store(proxyTag+"_pool_4096_finish", GetCurrentTimeInFloat64(3)-fwdTime)
 		// ******************  debug end  ********************
 
 		// Logger.Debugf("forwardTunnelWithConnPool %s connectResult: %s", ctx.Req.URL.Host, connectResult)
 		p.delegate.DuringResponse(ctx, &TunnelInfo{Client: clientConn, Target: targetConn, Err: err, ParentProxy: parentProxyURL, Pool: pool}) // targetConn could be closed in this method
 		if err != nil {
 			Logger.Errorf("forwardTunnelWithConnPool %s read error: %s", ctx.Req.URL.Host, err)
-			ctx.SetPoolContextErrorWithType(err, PoolReadTargetFail, parentProxyURL.Host)
+			ctx.SetPoolContextErrorWithType(err, PoolReadTargetFail, proxyTag)
 			targetConn.Close()
 			continue
 		}
@@ -1175,22 +1189,22 @@ func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) 
 				if err != nil || n != m {
 					if err != nil {
 						Logger.Errorf("forwardTunnelWithConnPool %s first part write client failed:", ctx.Req.URL.Host, err)
-						ctx.SetPoolContextErrorWithType(err, PoolWriteClientFail, parentProxyURL.Host)
+						ctx.SetPoolContextErrorWithType(err, PoolWriteClientFail, proxyTag)
 					} else {
 						Logger.Errorf("forwardTunnelWithConnPool %s partial write, read: %d, write: %d", ctx.Req.URL.Host, n, m)
-						ctx.SetPoolContextErrorWithType(fmt.Errorf("forwardTunnelWithConnPool %s partial write, read: %d, write: %d", ctx.Req.URL.Host, n, m), PoolWriteClientFail, parentProxyURL.Host)
+						ctx.SetPoolContextErrorWithType(fmt.Errorf("forwardTunnelWithConnPool %s partial write, read: %d, write: %d", ctx.Req.URL.Host, n, m), PoolWriteClientFail, proxyTag)
 					}
 					targetConn.Close()
 					break
 				}
-				transfer(ctx, clientConn, targetConn, parentProxyURL.Host)
+				transfer(ctx, clientConn, targetConn, proxyTag)
 				targetConn.Close()
 				break
 			}
 		}
 		// Retry
 		if string(connectResult[8:13]) == " 429 " {
-			ctx.SetPoolContextErrorWithType(fmt.Errorf("errCode:429 errMsg:Acquire proxy failed : no available proxy"), PoolParentProxyFail, parentProxyURL.Host)
+			ctx.SetPoolContextErrorWithType(fmt.Errorf("errCode:429 errMsg:Acquire proxy failed : no available proxy"), PoolParentProxyFail, proxyTag)
 		} else {
 			mbuf := make(map[string]interface{})
 			i := strings.Index(string(connectResult), "{")
@@ -1198,7 +1212,7 @@ func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) 
 			if err != nil {
 				Logger.Errorf("forwardTunnelWithConnPool %s Unmarshal connectResult failed, body: %s, err: %s", ctx.Req.URL.Host, connectResult[i:n], err)
 			} else {
-				ctx.SetPoolContextErrorWithType(fmt.Errorf("errCode:%d errMsg:%s", int(mbuf["errCode"].(float64)), mbuf["errMsg"].(string)), PoolParentProxyFail, parentProxyURL.Host)
+				ctx.SetPoolContextErrorWithType(fmt.Errorf("errCode:%d errMsg:%s", int(mbuf["errCode"].(float64)), mbuf["errMsg"].(string)), PoolParentProxyFail, proxyTag)
 			}
 		}
 		targetConn.Close()
