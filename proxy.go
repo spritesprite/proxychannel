@@ -268,6 +268,15 @@ func (p *Proxy) DoRequest(ctx *Context, rw http.ResponseWriter, responseFunc fun
 	newReq := new(http.Request)
 	*newReq = *ctx.Req
 	newReq.Header = CloneHeader(newReq.Header)
+	// When server reads http request it sets req.Close to true if
+	// "Connection" header contains "close".
+	// https://github.com/golang/go/blob/master/src/net/http/request.go#L1080
+	// Later, transfer.go adds "Connection: close" back when req.Close is true
+	// https://github.com/golang/go/blob/master/src/net/http/transfer.go#L275
+	// That's why tests that checks "Connection: close" removal fail
+	if newReq.Header.Get("Connection") == "close" {
+		newReq.Close = false
+	}
 	removeMITMHeaders(newReq.Header)
 	removeConnectionHeaders(newReq.Header)
 	for _, item := range hopHeaders {
@@ -920,6 +929,15 @@ func (p *Proxy) forwardHTTPWithConnPool(ctx *Context, rw http.ResponseWriter) {
 	newReq := new(http.Request)
 	*newReq = *ctx.Req
 	newReq.Header = CloneHeader(newReq.Header)
+	// When server reads http request it sets req.Close to true if
+	// "Connection" header contains "close".
+	// https://github.com/golang/go/blob/master/src/net/http/request.go#L1080
+	// Later, transfer.go adds "Connection: close" back when req.Close is true
+	// https://github.com/golang/go/blob/master/src/net/http/transfer.go#L275
+	// That's why tests that checks "Connection: close" removal fail
+	if newReq.Header.Get("Connection") == "close" {
+		newReq.Close = false
+	}
 	removeMITMHeaders(newReq.Header)
 	removeConnectionHeaders(newReq.Header)
 	for _, item := range hopHeaders {
