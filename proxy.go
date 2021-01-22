@@ -962,10 +962,23 @@ func (p *Proxy) forwardHTTPWithConnPool(ctx *Context, rw http.ResponseWriter) {
 		// I know it's weird, and it will be fixed in the future.
 
 		choice, err := randutil.WeightedChoice(poolChoices)
-		choice.Weight = 0
+		// choice.Weight = 0
 		pool := choice.Item.(ConnPool)
 		parentProxyURL := pool.GetRemoteAddrURL()
 		proxyTag := pool.GetTag()
+		nNoChance := 0
+		for i := range poolChoices {
+			pl := poolChoices[i].Item.(ConnPool)
+			if pl.GetTag() == proxyTag {
+				poolChoices[i].Weight = 0
+			}
+			if poolChoices[i].Weight == 0 {
+				nNoChance++
+			}
+		}
+		if nNoChance >= len(poolChoices) {
+			break
+		}
 
 		type CtxKey int
 		var pkey CtxKey = 0
@@ -1128,10 +1141,24 @@ func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) 
 
 	for range poolChoices {
 		choice, err := randutil.WeightedChoice(poolChoices)
-		choice.Weight = 0
+		// choice.Weight = 0
 		pool := choice.Item.(ConnPool)
 		parentProxyURL := pool.GetRemoteAddrURL()
 		proxyTag := pool.GetTag()
+		nNoChance := 0
+		for i := range poolChoices {
+			pl := poolChoices[i].Item.(ConnPool)
+			if pl.GetTag() == proxyTag {
+				poolChoices[i].Weight = 0
+			}
+			if poolChoices[i].Weight == 0 {
+				nNoChance++
+			}
+		}
+		if nNoChance >= len(poolChoices) {
+			break
+		}
+
 		// ****************** debug begin ********************
 		debugTimestamp.Timestamp.Store(proxyTag+"_pool_get_conn_begin", GetCurrentTimeInFloat64(3)-fwdTime)
 		// ******************  debug end  ********************
