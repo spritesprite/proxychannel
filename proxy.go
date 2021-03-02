@@ -25,53 +25,17 @@ import (
 	"github.com/spritesprite/proxychannel/cert"
 )
 
+// Canned HTTP responses
+var tunnelEstablishedResponseLine = []byte(fmt.Sprintf("HTTP/1.1 %d Connection established\r\n\r\n", http.StatusOK))
+var badGateway = fmt.Sprintf("HTTP/1.1 %d %s\r\n\r\n", http.StatusBadGateway, http.StatusText(http.StatusBadGateway))
+var tooManyRequests = fmt.Sprintf("HTTP/1.1 %d %s\r\n\r\n", http.StatusTooManyRequests, http.StatusText(http.StatusTooManyRequests))
+
+// Default timeout values
 const (
 	defaultTargetConnectTimeout   = 5 * time.Second
 	defaultTargetReadWriteTimeout = 30 * time.Second
 	defaultClientReadWriteTimeout = 30 * time.Second
 )
-
-var tunnelEstablishedResponseLine = []byte(fmt.Sprintf("HTTP/1.1 %d Connection established\r\n\r\n", http.StatusOK))
-var badGateway = fmt.Sprintf("HTTP/1.1 %d %s\r\n\r\n", http.StatusBadGateway, http.StatusText(http.StatusBadGateway))
-var tooManyRequests = fmt.Sprintf("HTTP/1.1 %d %s\r\n\r\n", http.StatusTooManyRequests, http.StatusText(http.StatusTooManyRequests))
-
-func makeTunnelRequestLine(addr string) string {
-	return fmt.Sprintf("CONNECT %s HTTP/1.1\r\n\r\n", addr)
-}
-
-func makeTunnelRequestWithAuth(ctx *Context, parentProxyURL *url.URL, targetConn net.Conn) error {
-	connectReq := &http.Request{
-		Proto:      ctx.Req.Proto,
-		ProtoMajor: ctx.Req.ProtoMajor,
-		ProtoMinor: ctx.Req.ProtoMinor,
-		Method:     "CONNECT",
-		URL:        &url.URL{Opaque: ctx.Req.URL.Host},
-		Host:       ctx.Req.URL.Host,
-		// Header:     make(http.Header),
-		Header: CloneHeader(ctx.Req.Header),
-	}
-	if connectReq.Proto == "HTTP/1.0" {
-		connectReq.Header.Del("Connection")
-	}
-	u := parentProxyURL.User
-	if u != nil {
-		username := u.Username()
-		password, _ := u.Password()
-		basicAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
-		connectReq.Header.Set("Proxy-Authorization", basicAuth)
-	}
-	return connectReq.Write(targetConn)
-
-	// u := parentProxyURL.User
-	// if u != nil {
-	// 	username := u.Username()
-	// 	password, _ := u.Password()
-	// 	basicAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
-	// 	// connectReq.Header.Add("Proxy-Authorization", basicAuth)
-	// 	return fmt.Sprintf("CONNECT %s %s\nHost: %s\nProxy-Authorization: %s\r\n\r\n", ctx.Req.Proto, ctx.Req.URL.Host, ctx.Req.URL.Host, basicAuth)
-	// }
-	// return fmt.Sprintf("CONNECT %s %s\nHost: %s\r\n\r\n", ctx.Req.Proto, ctx.Req.URL.Host, ctx.Req.URL.Host)
-}
 
 // ProxyError specifies all the possible errors that can occur due to this proxy's behavior,
 // which does not include the behavior of parent proxies.
@@ -116,11 +80,38 @@ type ConnWrapper struct {
 	Err  error
 }
 
-// below are the modes supported.
+// Below are the modes supported.
 const (
 	NormalMode = iota
 	ConnPoolMode
 )
+
+func makeTunnelRequestLine(addr string) string {
+	return fmt.Sprintf("CONNECT %s HTTP/1.1\r\n\r\n", addr)
+}
+
+func makeTunnelRequestWithAuth(ctx *Context, parentProxyURL *url.URL, targetConn net.Conn) error {
+	connectReq := &http.Request{
+		Proto:      ctx.Req.Proto,
+		ProtoMajor: ctx.Req.ProtoMajor,
+		ProtoMinor: ctx.Req.ProtoMinor,
+		Method:     "CONNECT",
+		URL:        &url.URL{Opaque: ctx.Req.URL.Host},
+		Host:       ctx.Req.URL.Host,
+		Header: CloneHeader(ctx.Req.Header),
+	}
+	if connectReq.Proto == "HTTP/1.0" {
+		connectReq.Header.Del("Connection")
+	}
+	u := parentProxyURL.User
+	if u != nil {
+		username := u.Username()
+		password, _ := u.Password()
+		basicAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
+		connectReq.Header.Set("Proxy-Authorization", basicAuth)
+	}
+	return connectReq.Write(targetConn)
+}
 
 // Proxy is a struct that implements ServeHTTP() method
 type Proxy struct {
@@ -232,7 +223,6 @@ func (p *Proxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	case ConnPoolMode:
 		if ctx.Req.Method == http.MethodConnect {
 			p.forwardTunnelWithConnPool(ctx, rw)
-			// p.forwardHTTPSWithConnPool(ctx, rw)
 		} else {
 			p.forwardHTTPWithConnPool(ctx, rw)
 		}
@@ -279,11 +269,7 @@ func (p *Proxy) DoRequest(ctx *Context, rw http.ResponseWriter, responseFunc fun
 	}
 	removeMITMHeaders(newReq.Header)
 	removeConnectionHeaders(newReq.Header)
-	for _, item := range hopHeaders {
-		if newReq.Header.Get(item) != "" {
-			newReq.Header.Del(item)
-		}
-	}
+	removeHopHeaders(newReq.Header)
 
 	// p.transport.ForceAttemptHTTP2 = true // for HTTP/2 test
 	var parentProxyURL *url.URL
@@ -311,16 +297,6 @@ func (p *Proxy) DoRequest(ctx *Context, rw http.ResponseWriter, responseFunc fun
 	}
 
 	tr := p.transport
-	// if auth != "" {
-	// 	tr, ok = p.transport[auth]
-	// 	if !ok {
-	// 		p.transport[auth] = defaultTr.Clone()
-	// 		tr = p.transport[auth]
-	// 	}
-	// 	basicAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(auth))
-	// 	tr.ProxyConnectHeader = http.Header{}
-	// 	tr.ProxyConnectHeader.Add("Proxy-Authorization", basicAuth)
-	// }
 
 	tr.Proxy = func(req *http.Request) (*url.URL, error) {
 		ctx := req.Context()
@@ -355,9 +331,7 @@ func (p *Proxy) DoRequest(ctx *Context, rw http.ResponseWriter, responseFunc fun
 	}
 	if err == nil {
 		removeConnectionHeaders(resp.Header)
-		for _, h := range hopHeaders {
-			resp.Header.Del(h)
-		}
+		removeHopHeaders(resp.Header)
 	}
 	responseFunc(resp, err)
 }
@@ -878,6 +852,14 @@ func removeConnectionHeaders(h http.Header) {
 	}
 }
 
+func removeHopHeaders(h http.Header) {
+	for _, item := range hopHeaders {
+		if h.Get(item) != "" {
+			h.Del(item)
+		}
+	}
+}
+
 func removeMITMHeaders(h http.Header) {
 	if c := h.Get("MITM"); c != "" {
 		h.Del("MITM")
@@ -940,11 +922,7 @@ func (p *Proxy) forwardHTTPWithConnPool(ctx *Context, rw http.ResponseWriter) {
 	}
 	removeMITMHeaders(newReq.Header)
 	removeConnectionHeaders(newReq.Header)
-	for _, item := range hopHeaders {
-		if newReq.Header.Get(item) != "" {
-			newReq.Header.Del(item)
-		}
-	}
+	removeHopHeaders(newReq.Header)
 
 	poolChoices, err := p.delegate.GetConnPool(ctx)
 	if err != nil {
@@ -1023,9 +1001,7 @@ func (p *Proxy) forwardHTTPWithConnPool(ctx *Context, rw http.ResponseWriter) {
 			continue
 		}
 		removeConnectionHeaders(resp.Header)
-		for _, h := range hopHeaders {
-			resp.Header.Del(h)
-		}
+		removeHopHeaders(resp.Header)
 
 		// defer resp.Body.Close() is not used as it's in a loop.
 		p.delegate.DuringResponse(ctx, resp)

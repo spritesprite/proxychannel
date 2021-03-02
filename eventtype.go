@@ -1,16 +1,5 @@
 package proxychannel
 
-// EventType .
-const (
-	// ConnectDone        = "CONNECT_DONE"
-	// AuthDone           = "AUTH_DONE"
-	// BeforeRequestDone  = "BEFORE_REQUEST_DONE"
-	// BeforeResponseDone = "BEFORE_RESPONSE_DONE"
-	// ParentProxyDone    = "PARENT_PROXY_DONE"
-	// DuringResponseDone = "DURING_RESPONSE_DONE"
-	RequestFinish = "REQUEST_FINISH"
-)
-
 // FailEventType .
 // When a request is aborted, the event should be one of the following.
 const (
@@ -63,3 +52,14 @@ const (
 	HTTPSRedialCancelTimeout  = "HTTPS_REDIAL_CANCEL_TIMEOUT"
 	TunnelRedialCancelTimeout = "TUNNEL_REDIAL_CANCEL_TIMEOUT"
 )
+
+// // EventType .
+// const (
+// 	ConnectDone        = "CONNECT_DONE"
+// 	AuthDone           = "AUTH_DONE"
+// 	BeforeRequestDone  = "BEFORE_REQUEST_DONE"
+// 	BeforeResponseDone = "BEFORE_RESPONSE_DONE"
+// 	ParentProxyDone    = "PARENT_PROXY_DONE"
+// 	DuringResponseDone = "DURING_RESPONSE_DONE"
+// 	RequestFinish = "REQUEST_FINISH"
+// )
