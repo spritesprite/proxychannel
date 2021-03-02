@@ -98,7 +98,7 @@ func makeTunnelRequestWithAuth(ctx *Context, parentProxyURL *url.URL, targetConn
 		Method:     "CONNECT",
 		URL:        &url.URL{Opaque: ctx.Req.URL.Host},
 		Host:       ctx.Req.URL.Host,
-		Header: CloneHeader(ctx.Req.Header),
+		Header:     CloneHeader(ctx.Req.Header),
 	}
 	if connectReq.Proto == "HTTP/1.0" {
 		connectReq.Header.Del("Connection")
@@ -1125,8 +1125,8 @@ func (p *Proxy) forwardTunnelWithConnPool(ctx *Context, rw http.ResponseWriter) 
 		debugTimestamp.Timestamp.Store(proxyTag+"_pool_get_conn_begin", GetCurrentTimeInFloat64(3)-fwdTime)
 		// ******************  debug end  ********************
 
-		targetConn, err := net.DialTimeout("tcp", parentProxyURL.Host, defaultTargetConnectTimeout)
-		// targetConn, err := pool.GetWithTimeout(defaultTargetConnectTimeout)
+		// targetConn, err := net.DialTimeout("tcp", parentProxyURL.Host, defaultTargetConnectTimeout)
+		targetConn, err := pool.GetWithTimeout(defaultTargetConnectTimeout)
 
 		// ****************** debug begin ********************
 		debugTimestamp.Timestamp.Store(proxyTag+"_pool_get_conn_finish", GetCurrentTimeInFloat64(3)-fwdTime)
