@@ -1,7 +1,6 @@
 package proxychannel
 
 import (
-	// "crypto/tls"
 	"fmt"
 	"net"
 	"net/http"
@@ -25,6 +24,63 @@ type Context struct {
 	Err        error
 	Closed     bool
 	Lock       sync.RWMutex
+}
+
+// Delegate defines some extra manipulation on requests set by user.
+type Delegate interface {
+	GetExtensionManager() *ExtensionManager
+	SetExtensionManager(*ExtensionManager)
+	Connect(ctx *Context, rw http.ResponseWriter)
+	Auth(ctx *Context, rw http.ResponseWriter)
+	BeforeRequest(ctx *Context)
+	BeforeResponse(ctx *Context, i interface{})
+	ParentProxy(ctx *Context, i interface{}) (*url.URL, error)
+	DuringResponse(ctx *Context, i interface{})
+	Finish(ctx *Context, rw http.ResponseWriter)
+	GetConnPool(ctx *Context) ([]randutil.Choice, error)
+}
+
+var _ Delegate = &DefaultDelegate{}
+
+// DefaultDelegate basically does nothing.
+type DefaultDelegate struct {
+	Delegate
+}
+
+// GetExtensionManager .
+func (h *DefaultDelegate) GetExtensionManager() *ExtensionManager {
+	return nil
+}
+
+// SetExtensionManager .
+func (h *DefaultDelegate) SetExtensionManager(em *ExtensionManager) {}
+
+// Connect .
+func (h *DefaultDelegate) Connect(ctx *Context, rw http.ResponseWriter) {}
+
+// Auth .
+func (h *DefaultDelegate) Auth(ctx *Context, rw http.ResponseWriter) {}
+
+// BeforeRequest .
+func (h *DefaultDelegate) BeforeRequest(ctx *Context) {}
+
+// BeforeResponse .
+func (h *DefaultDelegate) BeforeResponse(ctx *Context, i interface{}) {}
+
+// ParentProxy .
+func (h *DefaultDelegate) ParentProxy(ctx *Context, i interface{}) (*url.URL, error) {
+	return http.ProxyFromEnvironment(ctx.Req)
+}
+
+// DuringResponse .
+func (h *DefaultDelegate) DuringResponse(ctx *Context, i interface{}) {}
+
+// Finish .
+func (h *DefaultDelegate) Finish(ctx *Context, rw http.ResponseWriter) {}
+
+// GetConnPool .
+func (h *DefaultDelegate) GetConnPool(ctx *Context) ([]randutil.Choice, error) {
+	return nil, fmt.Errorf("no conn pool available")
 }
 
 // GetContextError .
@@ -117,62 +173,4 @@ type ConnPool interface {
 	GetTag() string             // get the human readable tag of the remote
 	GetWeight() int             // get the weight of this connection pool
 	GetRemoteAddrURL() *url.URL // get the remote addr of this connection pool
-	// Remove(conn net.Conn) error
-}
-
-// Delegate defines some extra manipulation on requests set by user.
-type Delegate interface {
-	GetExtensionManager() *ExtensionManager
-	SetExtensionManager(*ExtensionManager)
-	Connect(ctx *Context, rw http.ResponseWriter)
-	Auth(ctx *Context, rw http.ResponseWriter)
-	BeforeRequest(ctx *Context)
-	BeforeResponse(ctx *Context, i interface{})
-	ParentProxy(ctx *Context, i interface{}) (*url.URL, error)
-	DuringResponse(ctx *Context, i interface{})
-	Finish(ctx *Context, rw http.ResponseWriter)
-	GetConnPool(ctx *Context) ([]randutil.Choice, error)
-}
-
-var _ Delegate = &DefaultDelegate{}
-
-// DefaultDelegate basically does nothing.
-type DefaultDelegate struct {
-	Delegate
-}
-
-// GetExtensionManager .
-func (h *DefaultDelegate) GetExtensionManager() *ExtensionManager {
-	return nil
-}
-
-// SetExtensionManager .
-func (h *DefaultDelegate) SetExtensionManager(em *ExtensionManager) {}
-
-// Connect .
-func (h *DefaultDelegate) Connect(ctx *Context, rw http.ResponseWriter) {}
-
-// Auth .
-func (h *DefaultDelegate) Auth(ctx *Context, rw http.ResponseWriter) {}
-
-// BeforeRequest .
-func (h *DefaultDelegate) BeforeRequest(ctx *Context) {}
-
-// BeforeResponse .
-func (h *DefaultDelegate) BeforeResponse(ctx *Context, i interface{}) {}
-
-// ParentProxy .
-func (h *DefaultDelegate) ParentProxy(ctx *Context, i interface{}) (*url.URL, error) {
-	return http.ProxyFromEnvironment(ctx.Req)
-}
-
-// DuringResponse .
-func (h *DefaultDelegate) DuringResponse(ctx *Context, i interface{}) {}
-
-// Finish .
-func (h *DefaultDelegate) Finish(ctx *Context, rw http.ResponseWriter) {}
-
-// GetConnPool .
-func (h *DefaultDelegate) GetConnPool(ctx *Context) ([]randutil.Choice, error) {
-	return nil, fmt.Errorf("no conn pool available")
 }

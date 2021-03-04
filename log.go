@@ -64,7 +64,7 @@ func ConfigLogging(conf *LogConfig) error {
 	return nil
 }
 
-// SetLoggingLevel TODO
+// SetLoggingLevel .
 func SetLoggingLevel(level string, debug bool) error {
 
 	if strings.TrimSpace(level) == "" {
@@ -83,7 +83,7 @@ func SetLoggingLevel(level string, debug bool) error {
 	return nil
 }
 
-// SetLoggingFormat TODO
+// SetLoggingFormat .
 func SetLoggingFormat(format string) error {
 	var formatter logging.Formatter
 	var err error
@@ -94,7 +94,7 @@ func SetLoggingFormat(format string) error {
 	return nil
 }
 
-// SetLoggingBackend TODO
+// SetLoggingBackend .
 func SetLoggingBackend(out string) error {
 	var o io.Writer
 	switch out {
