@@ -13,7 +13,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptrace"
-	"net/http/httputil"
 	"net/url"
 	"strings"
 	"sync/atomic"
@@ -528,12 +527,13 @@ func (p *Proxy) DoRequest(ctx *Context, rw http.ResponseWriter, responseFunc fun
 	fakeCtx := context.WithValue(newReq.Context(), pkey, parentProxyURL)
 	newReq = newReq.Clone(fakeCtx)
 
-	dump, dumperr := httputil.DumpRequestOut(newReq, true)
-	if dumperr != nil {
-		Logger.Errorf("DumpRequestOut failed %s", dumperr)
-	} else {
-		ctx.ReqLength += int64(len(dump))
-	}
+	ctx.ReqLength += newReq.ContentLength
+	// dump, dumperr := httputil.DumpRequestOut(newReq, true)
+	// if dumperr != nil {
+	// 	Logger.Errorf("DumpRequestOut failed %s", dumperr)
+	// } else {
+	// 	ctx.ReqLength += int64(len(dump))
+	// }
 
 	tr := p.transport
 	tr.Proxy = func(req *http.Request) (*url.URL, error) {
@@ -713,12 +713,13 @@ func (p *Proxy) proxyHTTPWithConnPool(ctx *Context, rw http.ResponseWriter) {
 		fakeCtx := context.WithValue(newReq.Context(), pkey, parentProxyURL)
 		newReq = newReq.Clone(fakeCtx)
 
-		dump, dumperr := httputil.DumpRequestOut(newReq, true)
-		if dumperr != nil {
-			Logger.Errorf("DumpRequestOut failed %s", dumperr)
-		} else {
-			ctx.ReqLength += int64(len(dump))
-		}
+		ctx.ReqLength += newReq.ContentLength
+		// dump, dumperr := httputil.DumpRequestOut(newReq, true)
+		// if dumperr != nil {
+		// 	Logger.Errorf("DumpRequestOut failed %s", dumperr)
+		// } else {
+		// 	ctx.ReqLength += int64(len(dump))
+		// }
 
 		tr := p.transport
 		tr.Proxy = func(req *http.Request) (*url.URL, error) {
