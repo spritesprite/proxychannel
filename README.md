@@ -4,7 +4,7 @@ Package proxychannel is a customizable HTTP proxy framework in Golang.
 
 It accepts regular HTTP and CONNECT(for HTTPS) requests, and hijacks HTTPS connections as a "man in the middle"(only works under NormalMode).
 
-The framework starts a proxy server(``net/http`` server) and an extension manager, do something according to ``Delegate``, and handles the graceful shutdown and logging of them. To use it, just offer some configuration, and implement the ``Delegate`` and ``Extensions`` that you need.
+The framework starts a proxy server(``net/http`` server) and an extension manager, does something according to ``Delegate``, and handles the graceful shutdown and logging of them. To use it, just offer some configuration, and implement the ``Delegate`` and ``Extensions`` that you need.
 
 It has 2 modes(NormalMode and ConnPoolMode) for different scenarios and supports request-wise parent proxy selection.
 
